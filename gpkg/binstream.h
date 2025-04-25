@@ -140,7 +140,8 @@ size_t binstream_position(binstream_t *stream);
  * @param position the absolute position to seek to
  * @return SQLITE_OK if the seek operation succeeded.@n
  *         SQLITE_IOERR if a seek beyond the limit of a non-growable stream was requested
- *         SQLITE_NOMEM if a seek beyond the limit of a growable stream was requested, but the internal buffer could not be reallocated
+ *         SQLITE_NOMEM if a seek beyond the limit of a growable stream was requested, but the internal buffer could not
+ * be reallocated
  * @see binstream_relseek
  */
 int binstream_seek(binstream_t *stream, size_t position);
@@ -153,8 +154,9 @@ int binstream_seek(binstream_t *stream, size_t position);
  * @param stream a stream
  * @param offset the absolute position to seek to
  * @return SQLITE_OK if the seek operation succeeded.@n
- *         SQLITE_IOERR if a seek to a position smaller than 0 or beyond the limit of a non-growable stream was requested
- *         SQLITE_NOMEM if a seek beyond the limit of a growable stream was requested, but the internal buffer could not be reallocated
+ *         SQLITE_IOERR if a seek to a position smaller than 0 or beyond the limit of a non-growable stream was
+ * requested SQLITE_NOMEM if a seek beyond the limit of a growable stream was requested, but the internal buffer could
+ * not be reallocated
  * @see binstream_seek
  */
 int binstream_relseek(binstream_t *stream, int32_t offset);
@@ -255,7 +257,6 @@ int binstream_read_i32(binstream_t *stream, int32_t *out);
  */
 int binstream_write_i32(binstream_t *stream, int32_t val);
 
-
 /**
  * Reads a single unsigned 64-bit value from the stream. The position of the stream is advanced by 8.
  * @param stream a stream
@@ -296,7 +297,8 @@ int binstream_read_double(binstream_t *stream, double *out);
 int binstream_write_double(binstream_t *stream, double val);
 
 /**
- * Writes count double-precision floating point value to the stream. The position of the stream is advanced by (8 * count).
+ * Writes count double-precision floating point value to the stream. The position of the stream is advanced by (8 *
+ * count).
  *
  * @param stream a stream
  * @param val the values to write.

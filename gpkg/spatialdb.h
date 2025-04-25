@@ -18,7 +18,7 @@
 
 #include "error.h"
 #include "blobio.h"
-#include "sqlite.h"
+#include "sqlite3.h"
 #include "gpkg.h"
 
 /**
@@ -33,68 +33,70 @@ typedef struct spatialdb {
    * Initializes a database. Implementations of this function should perform any required setup work like registering
    * functions.
    */
-  void(*init)(sqlite3 *db, const struct spatialdb *spatialDb, errorstream_t *error);
+  void (*init)(sqlite3 *db, const struct spatialdb *spatialDb, errorstream_t *error);
   /**
    * Initializes the metadata tables for this spatial database type.
    */
-  int(*init_meta)(sqlite3 *db, const char *db_name, errorstream_t *error);
+  int (*init_meta)(sqlite3 *db, const char *db_name, errorstream_t *error);
   /**
    * Verifies the metadata tables for this spatial database type reporting any errors to the given error object.
    */
-  int(*check_meta)(sqlite3 *db, const char *db_name, int check_flags,  errorstream_t *error);
+  int (*check_meta)(sqlite3 *db, const char *db_name, int check_flags, errorstream_t *error);
   /**
    * Writes the spatial database specific blob header to the given stream. When this function exits the stream
    * will be positioned directly after the header.
    */
-  int(*write_blob_header)(binstream_t *stream, geom_blob_header_t *header, errorstream_t *error);
+  int (*write_blob_header)(binstream_t *stream, geom_blob_header_t *header, errorstream_t *error);
   /**
    * Reads the spatial database specific blob header from the given stream. When this function exits the stream
    * will be positioned directly after the header.
    */
-  int(*read_blob_header)(binstream_t *stream, geom_blob_header_t *header, errorstream_t *error);
+  int (*read_blob_header)(binstream_t *stream, geom_blob_header_t *header, errorstream_t *error);
   /*
    * Initializes a spatial database specific geometry blob writer. If applicable, an implementation dependent default
    * SRID will be used.
    */
-  int(*writer_init)(geom_blob_writer_t *writer);
+  int (*writer_init)(geom_blob_writer_t *writer);
   /*
    * Initializes a spatial database specific geometry blob writer.
    */
-  int(*writer_init_srid)(geom_blob_writer_t *writer, int32_t srid);
+  int (*writer_init_srid)(geom_blob_writer_t *writer, int32_t srid);
   /**
    * Destroys a geometry blob writer.
    */
-  void(*writer_destroy)(geom_blob_writer_t *writer, int free_data);
+  void (*writer_destroy)(geom_blob_writer_t *writer, int free_data);
   /**
    * Adds a geometry column to an existing table.
    */
-  int(*add_geometry_column)(sqlite3 *db, const char *db_name, const char *table_name, const char *column_name, const char *geom_type, int srs_id, int z, int m, errorstream_t *error);
+  int (*add_geometry_column)(sqlite3 *db, const char *db_name, const char *table_name, const char *column_name,
+                             const char *geom_type, int srs_id, int z, int m, errorstream_t *error);
   /**
    * Creates a tile pyramid table.
    */
-  int(*create_tiles_table)(sqlite3 *db, const char *db_name, const char *table_name, errorstream_t *error);
+  int (*create_tiles_table)(sqlite3 *db, const char *db_name, const char *table_name, errorstream_t *error);
   /**
    * Creates a spatial index on a given table column.
    */
-  int(*create_spatial_index)(sqlite3 *db, const char *db_name, const char *table_name, const char *geometry_column_name, const char *id_column_name, errorstream_t *error);
+  int (*create_spatial_index)(sqlite3 *db, const char *db_name, const char *table_name,
+                              const char *geometry_column_name, const char *id_column_name, errorstream_t *error);
   /**
    * Populates a geometry envelope based on a geometry blob. The stream is expected to be positioned at the start
    * of the geometry body (i.e., immediately after the blob header). When this function returns the stream is positioned
    * immediately after the geometry body.
    */
-  int(*fill_envelope)(binstream_t *stream, geom_envelope_t *envelope, errorstream_t *error);
+  int (*fill_envelope)(binstream_t *stream, geom_envelope_t *envelope, errorstream_t *error);
   /**
    * Populates a geometry header based on a geometry blob. The stream is expected to be positioned at the start
    * of the geometry body (i.e., immediately after the blob header). When this function returns the stream is positioned
    * immediately after the geometry header.
    */
-  int(*read_geometry_header)(binstream_t *stream, geom_header_t *header, errorstream_t *error);
+  int (*read_geometry_header)(binstream_t *stream, geom_header_t *header, errorstream_t *error);
   /**
    * Reads a geometry from the given stream. The stream is expected to be positioned at the start
    * of the geometry body (i.e., immediately after the blob header). When this function returns the stream is positioned
    * immediately after the geometry body.
    */
-  int(*read_geometry)(binstream_t *stream, geom_consumer_t const *consumer, errorstream_t *error);
+  int (*read_geometry)(binstream_t *stream, geom_consumer_t const *consumer, errorstream_t *error);
 } spatialdb_t;
 
 /**
@@ -103,24 +105,14 @@ typedef struct spatialdb {
 const spatialdb_t *spatialdb_geopackage_schema();
 
 /**
- * Returns the Spatialite 2.x spatial database schema.
- */
-const spatialdb_t *spatialdb_spatialite2_schema();
-
-/**
- * Returns the Spatialite 3.x spatial database schema.
- */
-const spatialdb_t *spatialdb_spatialite3_schema();
-
-/**
- * Returns the Spatialite 4.x spatial database schema.
- */
-const spatialdb_t *spatialdb_spatialite4_schema();
-
-/**
  * Initializes the given sqlite database with a specific spatial database schema. If the schema is set to NULL,
  * this function will attempt to autodetect the applicable schema.
  */
 int spatialdb_init(sqlite3 *db, const char **pzErrMsg, const sqlite3_api_routines *pThunk, const spatialdb_t *schema);
+
+/**
+ * Initializes the given sqlite database.
+ */
+int init_geopackage_extension(sqlite3 *db, char **pzErrMsg, const void *pApi);
 
 #endif

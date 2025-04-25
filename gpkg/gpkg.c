@@ -13,35 +13,24 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#include <sqlite3ext.h>
+#include <sqlite3.h>
 #include "spatialdb.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-GPKG_EXPORT const char *GPKG_CALL gpkg_libversion() {
-  return LIBGPKG_VERSION;
-}
+GPKG_EXPORT const char *GPKG_CALL gpkg_libversion() { return LIBGPKG_VERSION; }
 
-GPKG_EXPORT int GPKG_CALL sqlite3_gpkg_auto_init(sqlite3 *db, const char **pzErrMsg, const sqlite3_api_routines *pThunk) {
+GPKG_EXPORT void geopackage_init() { sqlite3_auto_extension((void (*)(void))init_geopackage_extension); }
+
+GPKG_EXPORT int GPKG_CALL sqlite3_gpkg_auto_init(sqlite3 *db, const char **pzErrMsg,
+                                                 const sqlite3_api_routines *pThunk) {
   return spatialdb_init(db, pzErrMsg, pThunk, NULL);
 }
 
 GPKG_EXPORT int GPKG_CALL sqlite3_gpkg_init(sqlite3 *db, const char **pzErrMsg, const sqlite3_api_routines *pThunk) {
   return spatialdb_init(db, pzErrMsg, pThunk, spatialdb_geopackage_schema());
-}
-
-GPKG_EXPORT int GPKG_CALL sqlite3_gpkg_spl2_init(sqlite3 *db, const char **pzErrMsg, const sqlite3_api_routines *pThunk) {
-  return spatialdb_init(db, pzErrMsg, pThunk, spatialdb_spatialite2_schema());
-}
-
-GPKG_EXPORT int GPKG_CALL sqlite3_gpkg_spl3_init(sqlite3 *db, const char **pzErrMsg, const sqlite3_api_routines *pThunk) {
-  return spatialdb_init(db, pzErrMsg, pThunk, spatialdb_spatialite3_schema());
-}
-
-GPKG_EXPORT int GPKG_CALL sqlite3_gpkg_spl4_init(sqlite3 *db, const char **pzErrMsg, const sqlite3_api_routines *pThunk) {
-  return spatialdb_init(db, pzErrMsg, pThunk, spatialdb_spatialite4_schema());
 }
 
 #ifdef __cplusplus

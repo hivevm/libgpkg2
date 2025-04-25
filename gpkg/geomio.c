@@ -17,7 +17,7 @@
 #include <stdio.h>
 #include <float.h>
 #include <math.h>
-#include "sqlite.h"
+#include "sqlite3.h"
 #include "geomio.h"
 #include "fp.h"
 
@@ -25,13 +25,9 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-static int geom_begin(const geom_consumer_t *consumer, errorstream_t *error) {
-  return SQLITE_OK;
-}
+static int geom_begin(const geom_consumer_t *consumer, errorstream_t *error) { return SQLITE_OK; }
 
-static int geom_end(const geom_consumer_t *consumer, errorstream_t *error) {
-  return SQLITE_OK;
-}
+static int geom_end(const geom_consumer_t *consumer, errorstream_t *error) { return SQLITE_OK; }
 
 static int geom_begin_geometry(const geom_consumer_t *consumer, const geom_header_t *header, errorstream_t *error) {
   return SQLITE_OK;
@@ -41,14 +37,12 @@ static int geom_end_geometry(const geom_consumer_t *consumer, const geom_header_
   return SQLITE_OK;
 }
 
-static int geom_coordinates(const geom_consumer_t *consumer, const geom_header_t *header, size_t point_count, const double *coords, int skip_coordinates, errorstream_t *error) {
+static int geom_coordinates(const geom_consumer_t *consumer, const geom_header_t *header, size_t point_count,
+                            const double *coords, int skip_coordinates, errorstream_t *error) {
   return SQLITE_OK;
 }
 
-static void intersection2DLSSFCT(double x1, double y1,
-                                 double x2, double y2,
-                                 double x3, double y3,
-                                 double x4, double y4,
+static void intersection2DLSSFCT(double x1, double y1, double x2, double y2, double x3, double y3, double x4, double y4,
                                  double *result) {
   double denom = (y2 - y1) * (x4 - x3) - (x2 - x1) * (y4 - y3);
   result[0] = x1;
@@ -63,7 +57,8 @@ static void intersection2DLSSFCT(double x1, double y1,
   }
 }
 
-static void find_center_circularArc(double p1_x, double p1_y, double p2_x, double p2_y, double p3_x, double p3_y, double *center) {
+static void find_center_circularArc(double p1_x, double p1_y, double p2_x, double p2_y, double p3_x, double p3_y,
+                                    double *center) {
   int p1Eqp2 = (p1_x == p2_x && p1_y == p2_y) ? 1 : 0;
   int p1Eqp3 = (p1_x == p3_x && p1_y == p3_y) ? 1 : 0;
   int p2Eqp3 = (p2_x == p3_x && p2_y == p3_y) ? 1 : 0;
@@ -90,9 +85,7 @@ static void find_center_circularArc(double p1_x, double p1_y, double p2_x, doubl
     double delta2X = p3_x - p2_x;
     double delta2Y = p3_y - p2_y;
 
-    intersection2DLSSFCT(center1X, center1Y,
-                         center1X + delta1Y, center1Y - delta1X,
-                         center2X, center2Y,
+    intersection2DLSSFCT(center1X, center1Y, center1X + delta1Y, center1Y - delta1X, center2X, center2Y,
                          center2X + delta2Y, center2Y - delta2X, center);
   }
 }
@@ -129,8 +122,8 @@ static int contains_angle(double start_angle, double arc_angle, double target_an
   }
 }
 
-static void get_bounds(double center_x, double center_y, double radius, double start_x, double start_y,
-                       double end_x, double end_y, double start_angle, double arc_angle, double *bounds) {
+static void get_bounds(double center_x, double center_y, double radius, double start_x, double start_y, double end_x,
+                       double end_y, double start_angle, double arc_angle, double *bounds) {
   double x_min;
   double y_min;
   double x_max;
@@ -197,14 +190,12 @@ static void get_bounds(double center_x, double center_y, double radius, double s
   bounds[3] = bounds[1] + (y_max - y_min);
 }
 
-
 static double get_radius(double center_x, double center_y, double x, double y) {
   double dx = x - center_x;
   double dy = y - center_y;
   double squaredDistance = dx * dx + dy * dy;
   return sqrt(squaredDistance);
 }
-
 
 static double forward_azimuth2D(double x1, double y1, double x2, double y2) {
   double angle = atan2(y2 - y1, x2 - x1);
@@ -247,61 +238,66 @@ static void min_max(double value, double *min, double *max) {
   }
 }
 
-static void geom_envelope_fill_arc(geom_envelope_t *envelope, const geom_header_t *header, size_t point_count, const double *coords) {
+static void geom_envelope_fill_arc(geom_envelope_t *envelope, const geom_header_t *header, size_t point_count,
+                                   const double *coords) {
 
   double bounds[4];
   double center[2];
   double p1_x, p1_y, p2_x, p2_y, p3_x, p3_y;
-#define MIN_MAX(coord, value) do { double coord = value; \
-        if (coord < envelope->min_##coord) envelope->min_##coord = coord; \
-        if (coord > envelope->max_##coord) envelope->max_##coord = coord; \
-      } while(0);
+#define MIN_MAX(coord, value)                                                                                          \
+  do {                                                                                                                 \
+    double coord = value;                                                                                              \
+    if (coord < envelope->min_##coord)                                                                                 \
+      envelope->min_##coord = coord;                                                                                   \
+    if (coord > envelope->max_##coord)                                                                                 \
+      envelope->max_##coord = coord;                                                                                   \
+  } while (0);
 
   int offset = 0;
   for (int processed = 0; processed < point_count - 2; processed += 2, offset += header->coord_size * 2) {
     switch (header->coord_type) {
-      default:
-      case GEOM_XY:
-        p1_x = coords[offset];
-        p1_y = coords[1 + offset];
-        p2_x = coords[2 + offset];
-        p2_y = coords[3 + offset];
-        p3_x = coords[4 + offset];
-        p3_y = coords[5 + offset];
-        break;
-      case GEOM_XYZ:
-        p1_x = coords[offset];
-        p1_y = coords[1 + offset];
-        p2_x = coords[3 + offset];
-        p2_y = coords[4 + offset];
-        p3_x = coords[6 + offset];
-        p3_y = coords[7 + offset];
-        for (int i = 2; i < 9; i += 3) {
-          min_max(coords[i + offset], &envelope->min_z, &envelope->max_z);
-        }
-        break;
-      case GEOM_XYM:
-        p1_x = coords[offset];
-        p1_y = coords[1 + offset];
-        p2_x = coords[3 + offset];
-        p2_y = coords[4 + offset];
-        p3_x = coords[6 + offset];
-        p3_y = coords[7 + offset];
-        for (int i = 2; i < 9; i += 3) {
-          min_max(coords[i + offset], &envelope->min_m, &envelope->max_m);
-        }
-        break;
-      case GEOM_XYZM:
-        p1_x = coords[offset];
-        p1_y = coords[1 + offset];
-        p2_x = coords[4 + offset];
-        p2_y = coords[5 + offset];
-        p3_x = coords[8 + offset];
-        p3_y = coords[9 + offset];
-        for (int i = 2; i < 11; i += 4) {
-          min_max(coords[i + offset], &envelope->min_z, &envelope->max_z);
-          min_max(coords[i + 1 + offset], &envelope->min_m, &envelope->max_m);
-        }
+    default:
+    case GEOM_XY:
+      p1_x = coords[offset];
+      p1_y = coords[1 + offset];
+      p2_x = coords[2 + offset];
+      p2_y = coords[3 + offset];
+      p3_x = coords[4 + offset];
+      p3_y = coords[5 + offset];
+      break;
+    case GEOM_XYZ:
+      p1_x = coords[offset];
+      p1_y = coords[1 + offset];
+      p2_x = coords[3 + offset];
+      p2_y = coords[4 + offset];
+      p3_x = coords[6 + offset];
+      p3_y = coords[7 + offset];
+      for (int i = 2; i < 9; i += 3) {
+        min_max(coords[i + offset], &envelope->min_z, &envelope->max_z);
+      }
+      break;
+    case GEOM_XYM:
+      p1_x = coords[offset];
+      p1_y = coords[1 + offset];
+      p2_x = coords[3 + offset];
+      p2_y = coords[4 + offset];
+      p3_x = coords[6 + offset];
+      p3_y = coords[7 + offset];
+      for (int i = 2; i < 9; i += 3) {
+        min_max(coords[i + offset], &envelope->min_m, &envelope->max_m);
+      }
+      break;
+    case GEOM_XYZM:
+      p1_x = coords[offset];
+      p1_y = coords[1 + offset];
+      p2_x = coords[4 + offset];
+      p2_y = coords[5 + offset];
+      p3_x = coords[8 + offset];
+      p3_y = coords[9 + offset];
+      for (int i = 2; i < 11; i += 4) {
+        min_max(coords[i + offset], &envelope->min_z, &envelope->max_z);
+        min_max(coords[i + 1 + offset], &envelope->min_m, &envelope->max_m);
+      }
     }
 
     find_center_circularArc(p1_x, p1_y, p2_x, p2_y, p3_x, p3_y, center);
@@ -321,53 +317,55 @@ static void geom_envelope_fill_arc(geom_envelope_t *envelope, const geom_header_
 #undef MIN_MAX
 }
 
-static void geom_envelope_fill_simple(geom_envelope_t *envelope, const geom_header_t *header, size_t point_count, const double *coords) {
-#define MIN_MAX(coord) double coord = coords[offset++]; \
-        if (coord < envelope->min_##coord) envelope->min_##coord = coord; \
-        if (coord > envelope->max_##coord) envelope->max_##coord = coord;
+static void geom_envelope_fill_simple(geom_envelope_t *envelope, const geom_header_t *header, size_t point_count,
+                                      const double *coords) {
+#define MIN_MAX(coord)                                                                                                 \
+  double coord = coords[offset++];                                                                                     \
+  if (coord < envelope->min_##coord)                                                                                   \
+    envelope->min_##coord = coord;                                                                                     \
+  if (coord > envelope->max_##coord)                                                                                   \
+    envelope->max_##coord = coord;
 
   int offset = 0;
   switch (header->coord_type) {
-    case GEOM_XY:
-      for (size_t i = 0; i < point_count; i++) {
-        MIN_MAX(x)
-        MIN_MAX(y)
-      }
-      break;
-    case GEOM_XYZ:
-      for (size_t i = 0; i < point_count; i++) {
-        MIN_MAX(x)
-        MIN_MAX(y)
-        MIN_MAX(z)
-      }
-      break;
-    case GEOM_XYM:
-      for (size_t i = 0; i < point_count; i++) {
-        MIN_MAX(x)
-        MIN_MAX(y)
-        MIN_MAX(m)
-      }
-      break;
-    default:
-      for (size_t i = 0; i < point_count; i++) {
-        MIN_MAX(x)
-        MIN_MAX(y)
-        MIN_MAX(z)
-        MIN_MAX(m)
-      }
+  case GEOM_XY:
+    for (size_t i = 0; i < point_count; i++) {
+      MIN_MAX(x)
+      MIN_MAX(y)
+    }
+    break;
+  case GEOM_XYZ:
+    for (size_t i = 0; i < point_count; i++) {
+      MIN_MAX(x)
+      MIN_MAX(y)
+      MIN_MAX(z)
+    }
+    break;
+  case GEOM_XYM:
+    for (size_t i = 0; i < point_count; i++) {
+      MIN_MAX(x)
+      MIN_MAX(y)
+      MIN_MAX(m)
+    }
+    break;
+  default:
+    for (size_t i = 0; i < point_count; i++) {
+      MIN_MAX(x)
+      MIN_MAX(y)
+      MIN_MAX(z)
+      MIN_MAX(m)
+    }
   }
 
 #undef MIN_MAX
 }
 
-void geom_consumer_init(
-  geom_consumer_t *consumer,
-  int (*begin)(const geom_consumer_t *, errorstream_t *),
-  int (*end)(const geom_consumer_t *, errorstream_t *),
-  int (*begin_geometry)(const geom_consumer_t *, const geom_header_t *, errorstream_t *),
-  int (*end_geometry)(const geom_consumer_t *, const geom_header_t *, errorstream_t *),
-  int (*coordinates)(const geom_consumer_t *, const geom_header_t *, size_t point_count, const double *coords, int skip_coordinates, errorstream_t *)
-) {
+void geom_consumer_init(geom_consumer_t *consumer, int (*begin)(const geom_consumer_t *, errorstream_t *),
+                        int (*end)(const geom_consumer_t *, errorstream_t *),
+                        int (*begin_geometry)(const geom_consumer_t *, const geom_header_t *, errorstream_t *),
+                        int (*end_geometry)(const geom_consumer_t *, const geom_header_t *, errorstream_t *),
+                        int (*coordinates)(const geom_consumer_t *, const geom_header_t *, size_t point_count,
+                                           const double *coords, int skip_coordinates, errorstream_t *)) {
   consumer->begin = begin != NULL ? begin : geom_begin;
   consumer->end = end != NULL ? end : geom_end;
   consumer->begin_geometry = begin_geometry != NULL ? begin_geometry : geom_begin_geometry;
@@ -377,14 +375,14 @@ void geom_consumer_init(
 
 int geom_coord_dim(coord_type_t coord_type) {
   switch (coord_type) {
-    default:
-    case GEOM_XY:
-      return 2;
-    case GEOM_XYZ:
-    case GEOM_XYM:
-      return 3;
-    case GEOM_XYZM:
-      return 4;
+  default:
+  case GEOM_XY:
+    return 2;
+  case GEOM_XYZ:
+  case GEOM_XYM:
+    return 3;
+  case GEOM_XYZM:
+    return 4;
   }
 }
 
@@ -403,54 +401,54 @@ int geom_type_name(geom_type_t geom_type, const char **geom_type_name) {
   int result = SQLITE_OK;
 
   switch (geom_type) {
-    case GEOM_GEOMETRY:
-      *geom_type_name = "Geometry";
-      break;
-    case GEOM_POINT:
-      *geom_type_name = "Point";
-      break;
-    case GEOM_CURVE:
-      *geom_type_name = "Curve";
-      break;
-    case GEOM_LINESTRING:
-      *geom_type_name = "LineString";
-      break;
-    case GEOM_SURFACE:
-      *geom_type_name = "Surface";
-      break;
-    case GEOM_CURVEPOLYGON:
-      *geom_type_name = "CurvePolygon";
-      break;
-    case GEOM_POLYGON:
-      *geom_type_name = "Polygon";
-      break;
-    case GEOM_GEOMETRYCOLLECTION:
-      *geom_type_name = "GeomCollection";
-      break;
-    case GEOM_MULTISURFACE:
-      *geom_type_name = "MultiSurface";
-      break;
-    case GEOM_MULTIPOLYGON:
-      *geom_type_name = "MultiPolygon";
-      break;
-    case GEOM_MULTICURVE:
-      *geom_type_name = "MultiCurve";
-      break;
-    case GEOM_MULTILINESTRING:
-      *geom_type_name = "MultiLineString";
-      break;
-    case GEOM_MULTIPOINT:
-      *geom_type_name = "MultiPoint";
-      break;
-    case GEOM_CIRCULARSTRING:
-      *geom_type_name = "CircularString";
-      break;
-    case GEOM_COMPOUNDCURVE:
-      *geom_type_name = "CompoundCurve";
-      break;
-    default:
-      *geom_type_name = NULL;
-      result = SQLITE_ERROR;
+  case GEOM_GEOMETRY:
+    *geom_type_name = "Geometry";
+    break;
+  case GEOM_POINT:
+    *geom_type_name = "Point";
+    break;
+  case GEOM_CURVE:
+    *geom_type_name = "Curve";
+    break;
+  case GEOM_LINESTRING:
+    *geom_type_name = "LineString";
+    break;
+  case GEOM_SURFACE:
+    *geom_type_name = "Surface";
+    break;
+  case GEOM_CURVEPOLYGON:
+    *geom_type_name = "CurvePolygon";
+    break;
+  case GEOM_POLYGON:
+    *geom_type_name = "Polygon";
+    break;
+  case GEOM_GEOMETRYCOLLECTION:
+    *geom_type_name = "GeomCollection";
+    break;
+  case GEOM_MULTISURFACE:
+    *geom_type_name = "MultiSurface";
+    break;
+  case GEOM_MULTIPOLYGON:
+    *geom_type_name = "MultiPolygon";
+    break;
+  case GEOM_MULTICURVE:
+    *geom_type_name = "MultiCurve";
+    break;
+  case GEOM_MULTILINESTRING:
+    *geom_type_name = "MultiLineString";
+    break;
+  case GEOM_MULTIPOINT:
+    *geom_type_name = "MultiPoint";
+    break;
+  case GEOM_CIRCULARSTRING:
+    *geom_type_name = "CircularString";
+    break;
+  case GEOM_COMPOUNDCURVE:
+    *geom_type_name = "CompoundCurve";
+    break;
+  default:
+    *geom_type_name = NULL;
+    result = SQLITE_ERROR;
   }
 
   return result;
@@ -460,21 +458,21 @@ int geom_coord_type_name(coord_type_t coord_type, const char **coord_type_name) 
   int result = SQLITE_OK;
 
   switch (coord_type) {
-    case GEOM_XY:
-      *coord_type_name = "XY";
-      break;
-    case GEOM_XYZ:
-      *coord_type_name = "XYZ";
-      break;
-    case GEOM_XYM:
-      *coord_type_name = "XYM";
-      break;
-    case GEOM_XYZM:
-      *coord_type_name = "XYZM";
-      break;
-    default:
-      *coord_type_name = NULL;
-      result = SQLITE_ERROR;
+  case GEOM_XY:
+    *coord_type_name = "XY";
+    break;
+  case GEOM_XYZ:
+    *coord_type_name = "XYZ";
+    break;
+  case GEOM_XYM:
+    *coord_type_name = "XYM";
+    break;
+  case GEOM_XYZM:
+    *coord_type_name = "XYZM";
+    break;
+  default:
+    *coord_type_name = NULL;
+    result = SQLITE_ERROR;
   }
 
   return result;
@@ -562,39 +560,39 @@ static int geom_parent_type(geom_type_t type, geom_type_t *super_type) {
   int result = SQLITE_OK;
 
   switch (type) {
-    default:
-    case GEOM_GEOMETRY:
-      result = SQLITE_ERROR;
-      break;
-    case GEOM_POINT:
-    case GEOM_CURVE:
-    case GEOM_SURFACE:
-    case GEOM_GEOMETRYCOLLECTION:
-      *super_type = GEOM_GEOMETRY;
-      break;
-    case GEOM_LINESTRING:
-    case GEOM_CIRCULARSTRING:
-    case GEOM_COMPOUNDCURVE:
-    case GEOM_LINEARRING:
-      *super_type = GEOM_CURVE;
-      break;
-    case GEOM_CURVEPOLYGON:
-      *super_type = GEOM_SURFACE;
-      break;
-    case GEOM_POLYGON:
-      *super_type = GEOM_CURVEPOLYGON;
-      break;
-    case GEOM_MULTISURFACE:
-    case GEOM_MULTICURVE:
-    case GEOM_MULTIPOINT:
-      *super_type = GEOM_GEOMETRYCOLLECTION;
-      break;
-    case GEOM_MULTIPOLYGON:
-      *super_type = GEOM_MULTISURFACE;
-      break;
-    case GEOM_MULTILINESTRING:
-      *super_type = GEOM_MULTICURVE;
-      break;
+  default:
+  case GEOM_GEOMETRY:
+    result = SQLITE_ERROR;
+    break;
+  case GEOM_POINT:
+  case GEOM_CURVE:
+  case GEOM_SURFACE:
+  case GEOM_GEOMETRYCOLLECTION:
+    *super_type = GEOM_GEOMETRY;
+    break;
+  case GEOM_LINESTRING:
+  case GEOM_CIRCULARSTRING:
+  case GEOM_COMPOUNDCURVE:
+  case GEOM_LINEARRING:
+    *super_type = GEOM_CURVE;
+    break;
+  case GEOM_CURVEPOLYGON:
+    *super_type = GEOM_SURFACE;
+    break;
+  case GEOM_POLYGON:
+    *super_type = GEOM_CURVEPOLYGON;
+    break;
+  case GEOM_MULTISURFACE:
+  case GEOM_MULTICURVE:
+  case GEOM_MULTIPOINT:
+    *super_type = GEOM_GEOMETRYCOLLECTION;
+    break;
+  case GEOM_MULTIPOLYGON:
+    *super_type = GEOM_MULTISURFACE;
+    break;
+  case GEOM_MULTILINESTRING:
+    *super_type = GEOM_MULTICURVE;
+    break;
   }
 
   return result;
@@ -634,26 +632,26 @@ void geom_envelope_init(geom_envelope_t *envelope) {
 
 void geom_envelope_accumulate(geom_envelope_t *envelope, const geom_header_t *header) {
   switch (header->coord_type) {
-    case GEOM_XYZ:
-      envelope->has_env_x = 1;
-      envelope->has_env_y = 1;
-      envelope->has_env_z = 1;
-      break;
-    case GEOM_XYM:
-      envelope->has_env_x = 1;
-      envelope->has_env_y = 1;
-      envelope->has_env_m = 1;
-      break;
-    case GEOM_XYZM:
-      envelope->has_env_x = 1;
-      envelope->has_env_y = 1;
-      envelope->has_env_z = 1;
-      envelope->has_env_m = 1;
-      break;
-    default:
-      envelope->has_env_x = 1;
-      envelope->has_env_y = 1;
-      break;
+  case GEOM_XYZ:
+    envelope->has_env_x = 1;
+    envelope->has_env_y = 1;
+    envelope->has_env_z = 1;
+    break;
+  case GEOM_XYM:
+    envelope->has_env_x = 1;
+    envelope->has_env_y = 1;
+    envelope->has_env_m = 1;
+    break;
+  case GEOM_XYZM:
+    envelope->has_env_x = 1;
+    envelope->has_env_y = 1;
+    envelope->has_env_z = 1;
+    envelope->has_env_m = 1;
+    break;
+  default:
+    envelope->has_env_x = 1;
+    envelope->has_env_y = 1;
+    break;
   }
 }
 
@@ -672,11 +670,11 @@ int geom_envelope_finalize(geom_envelope_t *envelope) {
   return 0;
 }
 
-void geom_envelope_fill(geom_envelope_t *envelope, const geom_header_t *header, size_t point_count, const double *coords) {
+void geom_envelope_fill(geom_envelope_t *envelope, const geom_header_t *header, size_t point_count,
+                        const double *coords) {
   if (header->geom_type == GEOM_CIRCULARSTRING) {
     geom_envelope_fill_arc(envelope, header, point_count, coords);
   } else {
     geom_envelope_fill_simple(envelope, header, point_count, coords);
   }
 }
-

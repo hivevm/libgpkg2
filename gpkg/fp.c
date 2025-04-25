@@ -17,9 +17,7 @@
 #include <string.h>
 #include "fp.h"
 
-int fp_isnan(double x) {
-  return x != x;
-}
+int fp_isnan(double x) { return x != x; }
 
 double fp_nan() {
   /*

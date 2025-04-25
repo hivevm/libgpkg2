@@ -15,7 +15,7 @@
  */
 #include <stdarg.h>
 #include <stdio.h>
-#include "sqlite.h"
+#include "sqlite3.h"
 #include "strbuf.h"
 
 int strbuf_init(strbuf_t *strbuf, size_t initial_size) {
@@ -58,13 +58,9 @@ void strbuf_destroy(strbuf_t *buffer) {
   }
 }
 
-size_t strbuf_length(strbuf_t *buffer) {
-  return buffer->length;
-}
+size_t strbuf_length(strbuf_t *buffer) { return buffer->length; }
 
-char *strbuf_data_pointer(strbuf_t *buffer) {
-  return buffer->buffer;
-}
+char *strbuf_data_pointer(strbuf_t *buffer) { return buffer->buffer; }
 
 int strbuf_data(strbuf_t *buffer, char **out) {
   size_t length = strbuf_length(buffer);
@@ -137,4 +133,3 @@ exit:
 
   return result;
 }
-

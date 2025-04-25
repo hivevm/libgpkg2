@@ -45,8 +45,8 @@ typedef struct {
 
 /**
  * A geometry blob writer. geom_blob_writer_t instances can be used to generate a spatial database specific blobs based
- * on any geometry source. Use geom_blob_writer_geom_consumer() to obtain a geom_consumer_t pointer that can be passed to
- * geomtery sources.
+ * on any geometry source. Use geom_blob_writer_geom_consumer() to obtain a geom_consumer_t pointer that can be passed
+ * to geomtery sources.
  */
 typedef struct {
   /** @private */

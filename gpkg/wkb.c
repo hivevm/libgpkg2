@@ -13,11 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#include <math.h>
 #include <stdio.h>
 #include <string.h>
 #include "wkb.h"
-#include "sqlite.h"
+#include "sqlite3.h"
 #include "error.h"
 #include "geomio.h"
 #include "fp.h"
@@ -46,8 +45,9 @@ typedef struct {
   geom_envelope_t *envelope;
 } fill_t;
 
-static int fill_envelope_coordinates(const geom_consumer_t *consumer, const geom_header_t *header, size_t point_count, const double *coords, int skip_coords, errorstream_t *error) {
-  geom_envelope_t *envelope = ((fill_t *) consumer)->envelope;
+static int fill_envelope_coordinates(const geom_consumer_t *consumer, const geom_header_t *header, size_t point_count,
+                                     const double *coords, int skip_coords, errorstream_t *error) {
+  geom_envelope_t *envelope = ((fill_t *)consumer)->envelope;
   geom_envelope_accumulate(envelope, header);
   geom_envelope_fill(envelope, header, point_count, coords);
   return SQLITE_OK;
@@ -69,71 +69,72 @@ int wkb_fill_geom_header(uint32_t wkb_type, geom_header_t *header, errorstream_t
   uint32_t geom_type = wkb_type % 1000;
 
   switch (modifier) {
-    case WKB_XY:
-      header->coord_size = 2;
-      header->coord_type = GEOM_XY;
-      break;
-    case WKB_XYZ:
-      header->coord_size = 3;
-      header->coord_type = GEOM_XYZ;
-      break;
-    case WKB_XYM:
-      header->coord_size = 3;
-      header->coord_type = GEOM_XYM;
-      break;
-    case WKB_XYZM:
-      header->coord_size = 4;
-      header->coord_type = GEOM_XYZM;
-      break;
-    default:
-      if (error) {
-        error_append(error, "Unsupported geometry modifier: %d", modifier);
-      }
-      return SQLITE_IOERR;
+  case WKB_XY:
+    header->coord_size = 2;
+    header->coord_type = GEOM_XY;
+    break;
+  case WKB_XYZ:
+    header->coord_size = 3;
+    header->coord_type = GEOM_XYZ;
+    break;
+  case WKB_XYM:
+    header->coord_size = 3;
+    header->coord_type = GEOM_XYM;
+    break;
+  case WKB_XYZM:
+    header->coord_size = 4;
+    header->coord_type = GEOM_XYZM;
+    break;
+  default:
+    if (error) {
+      error_append(error, "Unsupported geometry modifier: %d", modifier);
+    }
+    return SQLITE_IOERR;
   }
 
   switch (geom_type) {
-    case WKB_POINT:
-      header->geom_type = GEOM_POINT;
-      break;
-    case WKB_LINESTRING:
-      header->geom_type = GEOM_LINESTRING;
-      break;
-    case WKB_POLYGON:
-      header->geom_type = GEOM_POLYGON;
-      break;
-    case WKB_MULTIPOINT:
-      header->geom_type = GEOM_MULTIPOINT;
-      break;
-    case WKB_MULTILINESTRING:
-      header->geom_type = GEOM_MULTILINESTRING;
-      break;
-    case WKB_MULTIPOLYGON:
-      header->geom_type = GEOM_MULTIPOLYGON;
-      break;
-    case WKB_GEOMETRYCOLLECTION:
-      header->geom_type = GEOM_GEOMETRYCOLLECTION;
-      break;
-    case WKB_CIRCULARSTRING:
-      header->geom_type = GEOM_CIRCULARSTRING;
-      break;
-    case WKB_COMPOUNDCURVE:
-      header->geom_type = GEOM_COMPOUNDCURVE;
-      break;
-    case WKB_CURVEPOLYGON:
-      header->geom_type = GEOM_CURVEPOLYGON;
-      break;
-    default:
-      if (error) {
-        error_append(error, "Unsupported WKB geometry type: %d", wkb_type);
-      }
-      return SQLITE_IOERR;
+  case WKB_POINT:
+    header->geom_type = GEOM_POINT;
+    break;
+  case WKB_LINESTRING:
+    header->geom_type = GEOM_LINESTRING;
+    break;
+  case WKB_POLYGON:
+    header->geom_type = GEOM_POLYGON;
+    break;
+  case WKB_MULTIPOINT:
+    header->geom_type = GEOM_MULTIPOINT;
+    break;
+  case WKB_MULTILINESTRING:
+    header->geom_type = GEOM_MULTILINESTRING;
+    break;
+  case WKB_MULTIPOLYGON:
+    header->geom_type = GEOM_MULTIPOLYGON;
+    break;
+  case WKB_GEOMETRYCOLLECTION:
+    header->geom_type = GEOM_GEOMETRYCOLLECTION;
+    break;
+  case WKB_CIRCULARSTRING:
+    header->geom_type = GEOM_CIRCULARSTRING;
+    break;
+  case WKB_COMPOUNDCURVE:
+    header->geom_type = GEOM_COMPOUNDCURVE;
+    break;
+  case WKB_CURVEPOLYGON:
+    header->geom_type = GEOM_CURVEPOLYGON;
+    break;
+  default:
+    if (error) {
+      error_append(error, "Unsupported WKB geometry type: %d", wkb_type);
+    }
+    return SQLITE_IOERR;
   }
 
   return SQLITE_OK;
 }
 
-static int read_wkb_geometry_header(binstream_t *stream, wkb_dialect dialect, geom_header_t *header, errorstream_t *error) {
+static int read_wkb_geometry_header(binstream_t *stream, wkb_dialect dialect, geom_header_t *header,
+                                    errorstream_t *error) {
   uint8_t order;
   if (binstream_read_u8(stream, &order) != SQLITE_OK) {
     return SQLITE_IOERR;
@@ -150,75 +151,83 @@ static int read_wkb_geometry_header(binstream_t *stream, wkb_dialect dialect, ge
     }
     return SQLITE_IOERR;
   }
+
+  // type shouldn't be signed but some datasets have a negative sign
+  // bit that on an unsigned type lead to a different number.
+  if ((type & 0x80000000) != 0) {
+    type = (type & 0xff) % 1000 + 1000;
+  }
+
   uint32_t modifier = (type / 1000) * 1000;
   type %= 1000;
 
   switch (modifier) {
-    case WKB_XY:
-      header->coord_size = 2;
-      header->coord_type = GEOM_XY;
-      break;
-    case WKB_XYZ:
-      header->coord_size = 3;
-      header->coord_type = GEOM_XYZ;
-      break;
-    case WKB_XYM:
-      header->coord_size = 3;
-      header->coord_type = GEOM_XYM;
-      break;
-    case WKB_XYZM:
-      header->coord_size = 4;
-      header->coord_type = GEOM_XYZM;
-      break;
-    default:
-      if (error) {
-        error_append(error, "Unsupported geometry modifier: %d", modifier);
-      }
-      return SQLITE_IOERR;
+  case WKB_XY:
+    header->coord_size = 2;
+    header->coord_type = GEOM_XY;
+    break;
+  case WKB_XYZ:
+    header->coord_size = 3;
+    header->coord_type = GEOM_XYZ;
+    break;
+  case WKB_XYM:
+    header->coord_size = 3;
+    header->coord_type = GEOM_XYM;
+    break;
+  case WKB_XYZM:
+    header->coord_size = 4;
+    header->coord_type = GEOM_XYZM;
+    break;
+  default:
+    if (error) {
+      error_append(error, "Unsupported geometry modifier: %d", modifier);
+    }
+    return SQLITE_IOERR;
   }
 
   switch (type) {
-    case WKB_POINT:
-      header->geom_type = GEOM_POINT;
-      break;
-    case WKB_LINESTRING:
-      header->geom_type = GEOM_LINESTRING;
-      break;
-    case WKB_POLYGON:
-      header->geom_type = GEOM_POLYGON;
-      break;
-    case WKB_MULTIPOINT:
-      header->geom_type = GEOM_MULTIPOINT;
-      break;
-    case WKB_MULTILINESTRING:
-      header->geom_type = GEOM_MULTILINESTRING;
-      break;
-    case WKB_MULTIPOLYGON:
-      header->geom_type = GEOM_MULTIPOLYGON;
-      break;
-    case WKB_GEOMETRYCOLLECTION:
-      header->geom_type = GEOM_GEOMETRYCOLLECTION;
-      break;
-    case WKB_CIRCULARSTRING:
-      header->geom_type = GEOM_CIRCULARSTRING;
-      break;
-    case WKB_COMPOUNDCURVE:
-      header->geom_type = GEOM_COMPOUNDCURVE;
-      break;
-    case WKB_CURVEPOLYGON:
-      header->geom_type = GEOM_CURVEPOLYGON;
-      break;
-    default:
-      if (error) {
-        error_append(error, "Unsupported WKB geometry type: %d", type);
-      }
-      return SQLITE_IOERR;
+  case WKB_POINT:
+    header->geom_type = GEOM_POINT;
+    break;
+  case WKB_LINESTRING:
+    header->geom_type = GEOM_LINESTRING;
+    break;
+  case WKB_POLYGON:
+    header->geom_type = GEOM_POLYGON;
+    break;
+  case WKB_MULTIPOINT:
+    header->geom_type = GEOM_MULTIPOINT;
+    break;
+  case WKB_MULTILINESTRING:
+    header->geom_type = GEOM_MULTILINESTRING;
+    break;
+  case WKB_MULTIPOLYGON:
+    header->geom_type = GEOM_MULTIPOLYGON;
+    break;
+  case WKB_GEOMETRYCOLLECTION:
+    header->geom_type = GEOM_GEOMETRYCOLLECTION;
+    break;
+  case WKB_CIRCULARSTRING:
+    header->geom_type = GEOM_CIRCULARSTRING;
+    break;
+  case WKB_COMPOUNDCURVE:
+    header->geom_type = GEOM_COMPOUNDCURVE;
+    break;
+  case WKB_CURVEPOLYGON:
+    header->geom_type = GEOM_CURVEPOLYGON;
+    break;
+  default:
+    if (error) {
+      error_append(error, "Unsupported WKB geometry type: %d", type);
+    }
+    return SQLITE_IOERR;
   }
 
   return SQLITE_OK;
 }
 
-static int read_point(binstream_t *stream, wkb_dialect dialect, const geom_consumer_t *consumer, const geom_header_t *header, errorstream_t *error) {
+static int read_point(binstream_t *stream, wkb_dialect dialect, const geom_consumer_t *consumer,
+                      const geom_header_t *header, errorstream_t *error) {
   int result;
   uint32_t coord_size = header->coord_size;
   double coord[GEOM_MAX_COORD_SIZE];
@@ -243,7 +252,8 @@ static int read_point(binstream_t *stream, wkb_dialect dialect, const geom_consu
 
 #define COORD_BATCH_SIZE 10
 
-static int read_points(binstream_t *stream, wkb_dialect dialect, const geom_consumer_t *consumer, const geom_header_t *header, uint32_t point_count, errorstream_t *error) {
+static int read_points(binstream_t *stream, wkb_dialect dialect, const geom_consumer_t *consumer,
+                       const geom_header_t *header, uint32_t point_count, errorstream_t *error) {
   int result;
   double coord[GEOM_MAX_COORD_SIZE * COORD_BATCH_SIZE];
   int max_coords_to_read = COORD_BATCH_SIZE;
@@ -288,7 +298,8 @@ static int read_points(binstream_t *stream, wkb_dialect dialect, const geom_cons
   return SQLITE_OK;
 }
 
-static int read_linearring(binstream_t *stream, wkb_dialect dialect, const geom_consumer_t *consumer, const geom_header_t *header, errorstream_t *error) {
+static int read_linearring(binstream_t *stream, wkb_dialect dialect, const geom_consumer_t *consumer,
+                           const geom_header_t *header, errorstream_t *error) {
   int result = SQLITE_OK;
 
   uint32_t point_count;
@@ -320,7 +331,8 @@ exit:
   return result;
 }
 
-static int read_linestring(binstream_t *stream, wkb_dialect dialect, const geom_consumer_t *consumer, const geom_header_t *header, errorstream_t *error) {
+static int read_linestring(binstream_t *stream, wkb_dialect dialect, const geom_consumer_t *consumer,
+                           const geom_header_t *header, errorstream_t *error) {
   uint32_t point_count;
   if (binstream_read_u32(stream, &point_count) != SQLITE_OK) {
     if (error) {
@@ -332,7 +344,8 @@ static int read_linestring(binstream_t *stream, wkb_dialect dialect, const geom_
   return read_points(stream, dialect, consumer, header, point_count, error);
 }
 
-static int read_polygon(binstream_t *stream, wkb_dialect dialect, const geom_consumer_t *consumer, const geom_header_t *header, errorstream_t *error) {
+static int read_polygon(binstream_t *stream, wkb_dialect dialect, const geom_consumer_t *consumer,
+                        const geom_header_t *header, errorstream_t *error) {
   uint32_t ring_count;
   if (binstream_read_u32(stream, &ring_count) != SQLITE_OK) {
     if (error) {
@@ -349,9 +362,11 @@ static int read_polygon(binstream_t *stream, wkb_dialect dialect, const geom_con
   return SQLITE_OK;
 }
 
-static int read_geometry(binstream_t *stream, wkb_dialect dialect, geom_consumer_t const *consumer, geom_header_t *header, errorstream_t *error);
+static int read_geometry(binstream_t *stream, wkb_dialect dialect, geom_consumer_t const *consumer,
+                         geom_header_t *header, errorstream_t *error);
 
-static int read_multipoint(binstream_t *stream, wkb_dialect dialect, const geom_consumer_t *consumer, const geom_header_t *header, errorstream_t *error) {
+static int read_multipoint(binstream_t *stream, wkb_dialect dialect, const geom_consumer_t *consumer,
+                           const geom_header_t *header, errorstream_t *error) {
   uint32_t point_count;
   if (binstream_read_u32(stream, &point_count) != SQLITE_OK) {
     if (error) {
@@ -377,7 +392,8 @@ static int read_multipoint(binstream_t *stream, wkb_dialect dialect, const geom_
   return SQLITE_OK;
 }
 
-static int read_multilinestring(binstream_t *stream, wkb_dialect dialect, const geom_consumer_t *consumer, const geom_header_t *header, errorstream_t *error) {
+static int read_multilinestring(binstream_t *stream, wkb_dialect dialect, const geom_consumer_t *consumer,
+                                const geom_header_t *header, errorstream_t *error) {
   uint32_t linestring_count;
   if (binstream_read_u32(stream, &linestring_count) != SQLITE_OK) {
     if (error) {
@@ -403,7 +419,8 @@ static int read_multilinestring(binstream_t *stream, wkb_dialect dialect, const 
   return SQLITE_OK;
 }
 
-static int read_multipolygon(binstream_t *stream, wkb_dialect dialect, const geom_consumer_t *consumer, const geom_header_t *header, errorstream_t *error) {
+static int read_multipolygon(binstream_t *stream, wkb_dialect dialect, const geom_consumer_t *consumer,
+                             const geom_header_t *header, errorstream_t *error) {
   uint32_t polygon_count;
   if (binstream_read_u32(stream, &polygon_count) != SQLITE_OK) {
     if (error) {
@@ -429,7 +446,8 @@ static int read_multipolygon(binstream_t *stream, wkb_dialect dialect, const geo
   return SQLITE_OK;
 }
 
-static int read_geometrycollection(binstream_t *stream, wkb_dialect dialect, const geom_consumer_t *consumer, const geom_header_t *header, errorstream_t *error) {
+static int read_geometrycollection(binstream_t *stream, wkb_dialect dialect, const geom_consumer_t *consumer,
+                                   const geom_header_t *header, errorstream_t *error) {
   uint32_t geometry_count;
   if (binstream_read_u32(stream, &geometry_count) != SQLITE_OK) {
     if (error) {
@@ -455,7 +473,8 @@ static int read_geometrycollection(binstream_t *stream, wkb_dialect dialect, con
   return SQLITE_OK;
 }
 
-static int read_circularstring(binstream_t *stream, wkb_dialect dialect, const geom_consumer_t *consumer, const geom_header_t *header, errorstream_t *error) {
+static int read_circularstring(binstream_t *stream, wkb_dialect dialect, const geom_consumer_t *consumer,
+                               const geom_header_t *header, errorstream_t *error) {
   uint32_t point_count;
 
   if (binstream_read_u32(stream, &point_count) != SQLITE_OK) {
@@ -475,7 +494,8 @@ static int read_circularstring(binstream_t *stream, wkb_dialect dialect, const g
   return read_points(stream, dialect, consumer, header, point_count, error);
 }
 
-static int read_compoundcurve(binstream_t *stream, wkb_dialect dialect, const geom_consumer_t *consumer, const geom_header_t *header, errorstream_t *error) {
+static int read_compoundcurve(binstream_t *stream, wkb_dialect dialect, const geom_consumer_t *consumer,
+                              const geom_header_t *header, errorstream_t *error) {
   uint32_t curve_count;
   if (binstream_read_u32(stream, &curve_count) != SQLITE_OK) {
     if (error) {
@@ -491,7 +511,8 @@ static int read_compoundcurve(binstream_t *stream, wkb_dialect dialect, const ge
     }
 
     uint32_t geom_type = curve_header.geom_type;
-    if (curve_header.coord_type != header->coord_type || (geom_type != GEOM_CIRCULARSTRING && geom_type != GEOM_LINESTRING)) {
+    if (curve_header.coord_type != header->coord_type ||
+        (geom_type != GEOM_CIRCULARSTRING && geom_type != GEOM_LINESTRING)) {
       return SQLITE_IOERR;
     }
 
@@ -502,7 +523,8 @@ static int read_compoundcurve(binstream_t *stream, wkb_dialect dialect, const ge
   return SQLITE_OK;
 }
 
-static int read_curvepolygon(binstream_t *stream, wkb_dialect dialect, const geom_consumer_t *consumer, const geom_header_t *header, errorstream_t *error) {
+static int read_curvepolygon(binstream_t *stream, wkb_dialect dialect, const geom_consumer_t *consumer,
+                             const geom_header_t *header, errorstream_t *error) {
   uint32_t curve_count;
   if (binstream_read_u32(stream, &curve_count) != SQLITE_OK) {
     if (error) {
@@ -518,7 +540,8 @@ static int read_curvepolygon(binstream_t *stream, wkb_dialect dialect, const geo
     }
 
     uint32_t geom_type = curve_header.geom_type;
-    if (curve_header.coord_type != header->coord_type || (geom_type != GEOM_CIRCULARSTRING && geom_type != GEOM_LINESTRING && geom_type != GEOM_COMPOUNDCURVE)) {
+    if (curve_header.coord_type != header->coord_type ||
+        (geom_type != GEOM_CIRCULARSTRING && geom_type != GEOM_LINESTRING && geom_type != GEOM_COMPOUNDCURVE)) {
       return SQLITE_IOERR;
     }
 
@@ -529,47 +552,48 @@ static int read_curvepolygon(binstream_t *stream, wkb_dialect dialect, const geo
   return SQLITE_OK;
 }
 
-static int read_geometry(binstream_t *stream, wkb_dialect dialect, geom_consumer_t const *consumer, geom_header_t *header, errorstream_t *error) {
+static int read_geometry(binstream_t *stream, wkb_dialect dialect, geom_consumer_t const *consumer,
+                         geom_header_t *header, errorstream_t *error) {
   int result;
 
   int (*read_body)(binstream_t *, wkb_dialect, const geom_consumer_t *, const geom_header_t *, errorstream_t *);
   switch (header->geom_type) {
-    case GEOM_POINT:
-      read_body = read_point;
-      break;
-    case GEOM_LINESTRING:
-      read_body = read_linestring;
-      break;
-    case GEOM_POLYGON:
-      read_body = read_polygon;
-      break;
-    case GEOM_MULTIPOINT:
-      read_body = read_multipoint;
-      break;
-    case GEOM_MULTILINESTRING:
-      read_body = read_multilinestring;
-      break;
-    case GEOM_MULTIPOLYGON:
-      read_body = read_multipolygon;
-      break;
-    case GEOM_GEOMETRYCOLLECTION:
-      read_body = read_geometrycollection;
-      break;
-    case GEOM_CIRCULARSTRING:
-      read_body = read_circularstring;
-      break;
-    case GEOM_COMPOUNDCURVE:
-      read_body = read_compoundcurve;
-      break;
-    case GEOM_CURVEPOLYGON:
-      read_body = read_curvepolygon;
-      break;
-    default:
-      if (error) {
-        error_append(error, "Unsupported geometry type (geomio): %d", header->geom_type);
-      }
-      result = SQLITE_IOERR;
-      goto exit;
+  case GEOM_POINT:
+    read_body = read_point;
+    break;
+  case GEOM_LINESTRING:
+    read_body = read_linestring;
+    break;
+  case GEOM_POLYGON:
+    read_body = read_polygon;
+    break;
+  case GEOM_MULTIPOINT:
+    read_body = read_multipoint;
+    break;
+  case GEOM_MULTILINESTRING:
+    read_body = read_multilinestring;
+    break;
+  case GEOM_MULTIPOLYGON:
+    read_body = read_multipolygon;
+    break;
+  case GEOM_GEOMETRYCOLLECTION:
+    read_body = read_geometrycollection;
+    break;
+  case GEOM_CIRCULARSTRING:
+    read_body = read_circularstring;
+    break;
+  case GEOM_COMPOUNDCURVE:
+    read_body = read_compoundcurve;
+    break;
+  case GEOM_CURVEPOLYGON:
+    read_body = read_curvepolygon;
+    break;
+  default:
+    if (error) {
+      error_append(error, "Unsupported geometry type (geomio): %d", header->geom_type);
+    }
+    result = SQLITE_IOERR;
+    goto exit;
   }
 
   result = consumer->begin_geometry(consumer, header, error);
@@ -591,7 +615,8 @@ exit:
   return result;
 }
 
-static int read_wkb_geometry(binstream_t *stream, wkb_dialect dialect, geom_consumer_t const *consumer, errorstream_t *error) {
+static int read_wkb_geometry(binstream_t *stream, wkb_dialect dialect, geom_consumer_t const *consumer,
+                             errorstream_t *error) {
   geom_header_t header;
   int res = read_wkb_geometry_header(stream, dialect, &header, error);
   if (res != SQLITE_OK) {
@@ -630,7 +655,7 @@ int wkb_read_header(binstream_t *stream, wkb_dialect dialect, geom_header_t *hea
 static int wkb_begin_geometry(const geom_consumer_t *consumer, const geom_header_t *header, errorstream_t *error) {
   int result = SQLITE_OK;
 
-  wkb_writer_t *writer = (wkb_writer_t *) consumer;
+  wkb_writer_t *writer = (wkb_writer_t *)consumer;
   binstream_t *stream = &writer->stream;
 
   if (writer->offset >= 0) {
@@ -643,21 +668,21 @@ static int wkb_begin_geometry(const geom_consumer_t *consumer, const geom_header
 
   int32_t wkb_header_size;
   switch (header->geom_type) {
-    case GEOM_POINT:
-      wkb_header_size = 5;
-      break;
-    case GEOM_LINEARRING:
-      if (writer->offset == 0) {
-        // A linear ring as root object does not exist in WKB; we encode it as a line string
-        // Need to leave more room for a line string header
-        // See wkb_end_geometry for details.
-        wkb_header_size = 9;
-      } else {
-        wkb_header_size = 4;
-      }
-      break;
-    default:
+  case GEOM_POINT:
+    wkb_header_size = 5;
+    break;
+  case GEOM_LINEARRING:
+    if (writer->offset == 0) {
+      // A linear ring as root object does not exist in WKB; we encode it as a line string
+      // Need to leave more room for a line string header
+      // See wkb_end_geometry for details.
       wkb_header_size = 9;
+    } else {
+      wkb_header_size = 4;
+    }
+    break;
+  default:
+    wkb_header_size = 9;
   }
 
   result = binstream_relseek(stream, wkb_header_size);
@@ -665,10 +690,11 @@ static int wkb_begin_geometry(const geom_consumer_t *consumer, const geom_header
   return result;
 }
 
-static int wkb_coordinates(const geom_consumer_t *consumer, const geom_header_t *header, size_t point_count, const double *coords, int skip_coords, errorstream_t *error) {
+static int wkb_coordinates(const geom_consumer_t *consumer, const geom_header_t *header, size_t point_count,
+                           const double *coords, int skip_coords, errorstream_t *error) {
   int result = SQLITE_OK;
 
-  wkb_writer_t *writer = (wkb_writer_t *) consumer;
+  wkb_writer_t *writer = (wkb_writer_t *)consumer;
   binstream_t *stream = &writer->stream;
 
   point_count = (skip_coords == 0) ? point_count : (point_count - (skip_coords / header->coord_size));
@@ -686,7 +712,7 @@ exit:
 static int wkb_end_geometry(const geom_consumer_t *consumer, const geom_header_t *header, errorstream_t *error) {
   int result = SQLITE_OK;
 
-  wkb_writer_t *writer = (wkb_writer_t *) consumer;
+  wkb_writer_t *writer = (wkb_writer_t *)consumer;
   binstream_t *stream = &writer->stream;
 
   size_t current_pos = binstream_position(stream);
@@ -706,62 +732,62 @@ static int wkb_end_geometry(const geom_consumer_t *consumer, const geom_header_t
   } else {
     uint32_t modifier;
     switch (header->coord_type) {
-      default:
-      case GEOM_XY:
-        modifier = WKB_XY;
-        break;
-      case GEOM_XYZ:
-        modifier = WKB_XYZ;
-        break;
-      case GEOM_XYM:
-        modifier = WKB_XYM;
-        break;
-      case GEOM_XYZM:
-        modifier = WKB_XYZM;
-        break;
+    default:
+    case GEOM_XY:
+      modifier = WKB_XY;
+      break;
+    case GEOM_XYZ:
+      modifier = WKB_XYZ;
+      break;
+    case GEOM_XYM:
+      modifier = WKB_XYM;
+      break;
+    case GEOM_XYZM:
+      modifier = WKB_XYZM;
+      break;
     }
 
     uint32_t geom_type;
     switch (header->geom_type) {
-      case GEOM_POINT:
-        geom_type = WKB_POINT;
-        break;
-      case GEOM_LINEARRING:
-        // We can get here if the root geometry is a linear ring.
-        // This isn't possible in WKB so encode it as a line string instead.
-      case GEOM_LINESTRING:
-        geom_type = WKB_LINESTRING;
-        break;
-      case GEOM_POLYGON:
-        geom_type = WKB_POLYGON;
-        break;
-      case GEOM_MULTIPOINT:
-        geom_type = WKB_MULTIPOINT;
-        break;
-      case GEOM_MULTILINESTRING:
-        geom_type = WKB_MULTILINESTRING;
-        break;
-      case GEOM_MULTIPOLYGON:
-        geom_type = WKB_MULTIPOLYGON;
-        break;
-      case GEOM_GEOMETRYCOLLECTION:
-        geom_type = WKB_GEOMETRYCOLLECTION;
-        break;
-      case GEOM_CIRCULARSTRING:
-        geom_type = WKB_CIRCULARSTRING;
-        break;
-      case GEOM_COMPOUNDCURVE:
-        geom_type = WKB_COMPOUNDCURVE;
-        break;
-      case GEOM_CURVEPOLYGON:
-        geom_type = WKB_CURVEPOLYGON;
-        break;
-      default:
-        if (error) {
-          error_append(error, "Unsupported geometry type: %d", header->geom_type);
-        }
-        result = SQLITE_IOERR;
-        goto exit;
+    case GEOM_POINT:
+      geom_type = WKB_POINT;
+      break;
+    case GEOM_LINEARRING:
+      // We can get here if the root geometry is a linear ring.
+      // This isn't possible in WKB so encode it as a line string instead.
+    case GEOM_LINESTRING:
+      geom_type = WKB_LINESTRING;
+      break;
+    case GEOM_POLYGON:
+      geom_type = WKB_POLYGON;
+      break;
+    case GEOM_MULTIPOINT:
+      geom_type = WKB_MULTIPOINT;
+      break;
+    case GEOM_MULTILINESTRING:
+      geom_type = WKB_MULTILINESTRING;
+      break;
+    case GEOM_MULTIPOLYGON:
+      geom_type = WKB_MULTIPOLYGON;
+      break;
+    case GEOM_GEOMETRYCOLLECTION:
+      geom_type = WKB_GEOMETRYCOLLECTION;
+      break;
+    case GEOM_CIRCULARSTRING:
+      geom_type = WKB_CIRCULARSTRING;
+      break;
+    case GEOM_COMPOUNDCURVE:
+      geom_type = WKB_COMPOUNDCURVE;
+      break;
+    case GEOM_CURVEPOLYGON:
+      geom_type = WKB_CURVEPOLYGON;
+      break;
+    default:
+      if (error) {
+        error_append(error, "Unsupported geometry type: %d", header->geom_type);
+      }
+      result = SQLITE_IOERR;
+      goto exit;
     }
 
     size_t start = writer->start[writer->offset];
@@ -812,7 +838,7 @@ exit:
 }
 
 static int wkb_end(const geom_consumer_t *consumer, errorstream_t *error) {
-  wkb_writer_t *writer = (wkb_writer_t *) consumer;
+  wkb_writer_t *writer = (wkb_writer_t *)consumer;
   binstream_t *stream = &writer->stream;
 
   if (writer->dialect == WKB_SPATIALITE) {
@@ -841,18 +867,10 @@ int wkb_writer_init(wkb_writer_t *writer, wkb_dialect dialect) {
   return SQLITE_OK;
 }
 
-geom_consumer_t *wkb_writer_geom_consumer(wkb_writer_t *writer) {
-  return &writer->geom_consumer;
-}
+geom_consumer_t *wkb_writer_geom_consumer(wkb_writer_t *writer) { return &writer->geom_consumer; }
 
-void wkb_writer_destroy(wkb_writer_t *writer, int free_data) {
-  binstream_destroy(&writer->stream, free_data);
-}
+void wkb_writer_destroy(wkb_writer_t *writer, int free_data) { binstream_destroy(&writer->stream, free_data); }
 
-uint8_t *wkb_writer_getwkb(wkb_writer_t *writer) {
-  return binstream_data(&writer->stream);
-}
+uint8_t *wkb_writer_getwkb(wkb_writer_t *writer) { return binstream_data(&writer->stream); }
 
-size_t wkb_writer_length(wkb_writer_t *writer) {
-  return binstream_available(&writer->stream);
-}
+size_t wkb_writer_length(wkb_writer_t *writer) { return binstream_available(&writer->stream); }

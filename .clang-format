@@ -1,0 +1,11 @@
+---
+Language:        Cpp
+BasedOnStyle:    LLVM
+ColumnLimit:     120                      # 80
+SortIncludes:    false                    # CaseSensitive
+Standard:        Cpp11                    # Latest
+TabWidth:        2                        # 8 -> 2 (mapserver)
+UseTab:          Never
+
+#BreakBeforeBraces: Linux                  # Stroustrup
+BreakConstructorInitializers: BeforeComma # BeforeColonPointerAlignment: Middle

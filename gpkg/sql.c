@@ -15,7 +15,7 @@
  */
 #include <stdarg.h>
 #include <stdlib.h>
-#include "sqlite.h"
+#include "sqlite3.h"
 #include "sql.h"
 
 #define SQL_NOT_NULL_MASK SQL_NOT_NULL
@@ -51,21 +51,21 @@ static int sql_stmt_bind(sqlite3_stmt *stmt, const value_t *values, const int nV
   }
   for (int cIx = 0; cIx < nValues; cIx++) {
     switch (values[cIx].type) {
-      default:
-        break;
-      case VALUE_NULL:
-        result = sqlite3_bind_null(stmt, cIx + 1);
-        break;
-      case VALUE_FUNC:
-      case VALUE_TEXT:
-        result = sqlite3_bind_text(stmt, cIx + 1, VALUE_AS_TEXT(values[cIx]), -1, SQLITE_STATIC);
-        break;
-      case VALUE_DOUBLE:
-        result = sqlite3_bind_double(stmt, cIx + 1, VALUE_AS_DOUBLE(values[cIx]));
-        break;
-      case VALUE_INTEGER:
-        result = sqlite3_bind_int(stmt, cIx + 1, VALUE_AS_INT(values[cIx]));
-        break;
+    default:
+      break;
+    case VALUE_NULL:
+      result = sqlite3_bind_null(stmt, cIx + 1);
+      break;
+    case VALUE_FUNC:
+    case VALUE_TEXT:
+      result = sqlite3_bind_text(stmt, cIx + 1, VALUE_AS_TEXT(values[cIx]), -1, SQLITE_STATIC);
+      break;
+    case VALUE_DOUBLE:
+      result = sqlite3_bind_double(stmt, cIx + 1, VALUE_AS_DOUBLE(values[cIx]));
+      break;
+    case VALUE_INTEGER:
+      result = sqlite3_bind_int(stmt, cIx + 1, VALUE_AS_INT(values[cIx]));
+      break;
     }
     if (result != SQLITE_OK) {
       return result;
@@ -204,9 +204,7 @@ int sql_exec_for_double(sqlite3 *db, double *out, char *sql, ...) {
   return result;
 }
 
-static int abort_after_first_row(sqlite3 *db, sqlite3_stmt *stmt, void *data) {
-  return SQLITE_ABORT;
-}
+static int abort_after_first_row(sqlite3 *db, sqlite3_stmt *stmt, void *data) { return SQLITE_ABORT; }
 
 int sql_exec(sqlite3 *db, char *sql, ...) {
   va_list args;
@@ -233,17 +231,18 @@ int sql_exec_stmt(sqlite3 *db, sql_callback row, sql_callback nodata, void *data
 }
 
 static int sql_check_table_exists_nodata(sqlite3 *db, sqlite3_stmt *stmt, void *data) {
-  *((int *) data) = 0;
+  *((int *)data) = 0;
   return SQLITE_ABORT;
 }
 
 static int sql_check_table_exists_row(sqlite3 *db, sqlite3_stmt *stmt, void *data) {
-  *((int *) data) = 1;
+  *((int *)data) = 1;
   return SQLITE_ABORT;
 }
 
 int sql_check_table_exists(sqlite3 *db, const char *db_name, const char *table_name, int *exists) {
-  int result = sql_exec_stmt(db, sql_check_table_exists_row, sql_check_table_exists_nodata, exists, "PRAGMA \"%w\".table_info(\"%w\")", db_name, table_name);
+  int result = sql_exec_stmt(db, sql_check_table_exists_row, sql_check_table_exists_nodata, exists,
+                             "PRAGMA \"%w\".table_info(\"%w\")", db_name, table_name);
   if (result != SQLITE_OK) {
     *exists = 0;
   }
@@ -264,7 +263,8 @@ static int sql_check_column_exists_row(sqlite3 *db, sqlite3_stmt *stmt, void *da
   return SQLITE_OK;
 }
 
-int sql_check_column_exists(sqlite3 *db, const char *db_name, const char *table_name, const char *column_name, int *exists) {
+int sql_check_column_exists(sqlite3 *db, const char *db_name, const char *table_name, const char *column_name,
+                            int *exists) {
   column_to_find_t c;
   c.found = 0;
   c.name = column_name;
@@ -272,10 +272,8 @@ int sql_check_column_exists(sqlite3 *db, const char *db_name, const char *table_
     return SQLITE_ERROR;
   }
 
-  int result = sql_exec_stmt(
-                 db, sql_check_column_exists_row, NULL, &c,
-                 "PRAGMA \"%w\".table_info(\"%w\")", db_name, table_name
-               );
+  int result =
+      sql_exec_stmt(db, sql_check_column_exists_row, NULL, &c, "PRAGMA \"%w\".table_info(\"%w\")", db_name, table_name);
 
   *exists = c.found;
 
@@ -325,7 +323,8 @@ static int sql_check_cols_row(sqlite3 *db, sqlite3_stmt *stmt, void *data) {
   if (index != -1) {
     char *type = (char *)sqlite3_column_text(stmt, 2);
     if (sqlite3_strnicmp(table_info->columns[index].type, type, strlen(table_info->columns[index].type) + 1) != 0) {
-      error_append(error, "Column %s.%s has incorrect type (expected: %s, actual: %s)", table_info->name, name, table_info->columns[index].type, type);
+      error_append(error, "Column %s.%s has incorrect type (expected: %s, actual: %s)", table_info->name, name,
+                   table_info->columns[index].type, type);
     }
 
     int not_null = sqlite3_column_int(stmt, 3);
@@ -340,49 +339,58 @@ static int sql_check_cols_row(sqlite3 *db, sqlite3_stmt *stmt, void *data) {
       if (default_value.type == VALUE_TEXT) {
         char *expected = sqlite3_mprintf("'%s'", VALUE_AS_TEXT(default_value));
         if (sqlite3_column_type(stmt, 4) == SQLITE_NULL) {
-          error_append(error, "Column %s.%s has incorrect default value: expected '%s' but was NULL", table_info->name, name, expected);
+          error_append(error, "Column %s.%s has incorrect default value: expected '%s' but was NULL", table_info->name,
+                       name, expected);
         } else {
           const char *actual = (const char *)sqlite3_column_text(stmt, 4);
           if (sqlite3_strnicmp(expected, actual, strlen(expected) + 1) != 0) {
-            error_append(error, "Column %s.%s has incorrect default value: expected '%s' but was '%s'", table_info->name, name, expected, actual);
+            error_append(error, "Column %s.%s has incorrect default value: expected '%s' but was '%s'",
+                         table_info->name, name, expected, actual);
           }
         }
         sqlite3_free(expected);
       } else if (default_value.type == VALUE_FUNC) {
         char *expected = sqlite3_mprintf(VALUE_AS_TEXT(default_value));
         if (sqlite3_column_type(stmt, 4) == SQLITE_NULL) {
-          error_append(error, "Column %s.%s has incorrect default value: expected '%s' but was NULL", table_info->name, name, expected);
+          error_append(error, "Column %s.%s has incorrect default value: expected '%s' but was NULL", table_info->name,
+                       name, expected);
         } else {
           const char *actual = (const char *)sqlite3_column_text(stmt, 4);
           if (sqlite3_strnicmp(expected, actual, strlen(expected) + 1) != 0) {
-            error_append(error, "Column %s.%s has incorrect default value: expected '%s' but was '%s'", table_info->name, name, expected, actual);
+            error_append(error, "Column %s.%s has incorrect default value: expected '%s' but was '%s'",
+                         table_info->name, name, expected, actual);
           }
         }
         sqlite3_free(expected);
       } else if (default_value.type == VALUE_INTEGER) {
         int expected = VALUE_AS_INT(default_value);
         if (sqlite3_column_type(stmt, 4) == SQLITE_NULL) {
-          error_append(error, "Column %s.%s has incorrect default value: expected %d but was NULL", table_info->name, name, expected);
+          error_append(error, "Column %s.%s has incorrect default value: expected %d but was NULL", table_info->name,
+                       name, expected);
         } else {
           int actual = sqlite3_column_int(stmt, 4);
           if (actual != expected) {
-            error_append(error, "Column %s.%s has incorrect default value: expected %d but was %d", table_info->name, name, expected, actual);
+            error_append(error, "Column %s.%s has incorrect default value: expected %d but was %d", table_info->name,
+                         name, expected, actual);
           }
         }
       } else if (default_value.type == VALUE_DOUBLE) {
         double expected = VALUE_AS_DOUBLE(default_value);
         if (sqlite3_column_type(stmt, 4) == SQLITE_NULL) {
-          error_append(error, "Column %s.%s has incorrect default value: expected %f but was NULL", table_info->name, name, expected);
+          error_append(error, "Column %s.%s has incorrect default value: expected %f but was NULL", table_info->name,
+                       name, expected);
         } else {
           double actual = sqlite3_column_double(stmt, 4);
           if (actual != expected) {
-            error_append(error, "Column %s.%s has incorrect default value: expected %f but was %f", table_info->name, name, expected, actual);
+            error_append(error, "Column %s.%s has incorrect default value: expected %f but was %f", table_info->name,
+                         name, expected, actual);
           }
         }
       } else if (default_value.type == VALUE_NULL) {
         if (sqlite3_column_type(stmt, 4) != SQLITE_NULL) {
           const char *actual = (const char *)sqlite3_column_text(stmt, 4);
-          error_append(error, "Column %s.%s has incorrect default value: expected NULL but was %s", table_info->name, name, actual);
+          error_append(error, "Column %s.%s has incorrect default value: expected NULL but was %s", table_info->name,
+                       name, actual);
         }
       }
     }
@@ -401,16 +409,18 @@ static int sql_check_cols_row(sqlite3 *db, sqlite3_stmt *stmt, void *data) {
   return SQLITE_OK;
 }
 
-static int sql_check_table_schema(sqlite3 *db, const char *db_name, const table_info_t *table_info, int check_flags, errorstream_t *error) {
+static int sql_check_table_schema(sqlite3 *db, const char *db_name, const table_info_t *table_info, int check_flags,
+                                  errorstream_t *error) {
   int nColumns = sql_count_columns(table_info);
   int *found = (int *)sqlite3_malloc(nColumns * sizeof(int));
   if (found == NULL) {
     return SQLITE_NOMEM;
   }
   memset(found, 0, nColumns * sizeof(int));
-  check_cols_data data = { error, found, nColumns, table_info, check_flags };
+  check_cols_data data = {error, found, nColumns, table_info, check_flags};
 
-  int result = sql_exec_stmt(db, sql_check_cols_row, NULL, &data, "PRAGMA \"%w\".table_info(\"%w\")", db_name, table_info->name);
+  int result =
+      sql_exec_stmt(db, sql_check_cols_row, NULL, &data, "PRAGMA \"%w\".table_info(\"%w\")", db_name, table_info->name);
 
   if (result == SQLITE_OK) {
     for (int i = 0; i < nColumns; i++) {
@@ -427,7 +437,8 @@ static int sql_check_table_schema(sqlite3 *db, const char *db_name, const table_
   return result;
 }
 
-static int sql_format_missing_row(const char *db_name, const table_info_t *table_info, const value_t *row, errorstream_t *error) {
+static int sql_format_missing_row(const char *db_name, const table_info_t *table_info, const value_t *row,
+                                  errorstream_t *error) {
   int result;
   strbuf_t errmsg;
 
@@ -451,21 +462,21 @@ static int sql_format_missing_row(const char *db_name, const table_info_t *table
     }
 
     switch (row[cIx].type) {
-      default:
-        break;
-      case VALUE_NULL:
-        result = strbuf_append(&errmsg, "%s: NULL", table_info->columns[cIx].name);
-        break;
-      case VALUE_FUNC:
-      case VALUE_TEXT:
-        result = strbuf_append(&errmsg, "%s: '%s'", table_info->columns[cIx].name, VALUE_AS_TEXT(row[cIx]));
-        break;
-      case VALUE_DOUBLE:
-        result = strbuf_append(&errmsg, "%s: %g", table_info->columns[cIx].name, VALUE_AS_DOUBLE(row[cIx]));
-        break;
-      case VALUE_INTEGER:
-        result = strbuf_append(&errmsg, "%s: %d", table_info->columns[cIx].name, VALUE_AS_INT(row[cIx]));
-        break;
+    default:
+      break;
+    case VALUE_NULL:
+      result = strbuf_append(&errmsg, "%s: NULL", table_info->columns[cIx].name);
+      break;
+    case VALUE_FUNC:
+    case VALUE_TEXT:
+      result = strbuf_append(&errmsg, "%s: '%s'", table_info->columns[cIx].name, VALUE_AS_TEXT(row[cIx]));
+      break;
+    case VALUE_DOUBLE:
+      result = strbuf_append(&errmsg, "%s: %g", table_info->columns[cIx].name, VALUE_AS_DOUBLE(row[cIx]));
+      break;
+    case VALUE_INTEGER:
+      result = strbuf_append(&errmsg, "%s: %d", table_info->columns[cIx].name, VALUE_AS_INT(row[cIx]));
+      break;
     }
     if (result != SQLITE_OK) {
       goto exit;
@@ -644,10 +655,11 @@ exit:
   return result;
 }
 
-#define SQL_CONSTRAINT_IX(flags) ( (flags >> 4) & 0xF)
+#define SQL_CONSTRAINT_IX(flags) ((flags >> 4) & 0xF)
 #define SQL_IS_CONSTRAINT(flags, mask, ix) ((flags & mask) && (ix == -1 || SQL_CONSTRAINT_IX(flags) == ix))
 
-static void appendTableConstraint(const table_info_t *table_info, strbuf_t *sql, int constraint_mask, int constraint_idx) {
+static void appendTableConstraint(const table_info_t *table_info, strbuf_t *sql, int constraint_mask,
+                                  int constraint_idx) {
   char *constraint_name;
   if (constraint_mask == SQL_PRIMARY_KEY_MASK) {
     constraint_name = "PRIMARY KEY";
@@ -726,20 +738,20 @@ static int sql_create_table(sqlite3 *db, const char *db_name, const table_info_t
     }
 
     switch (columns[i].default_value.type) {
-      default:
-        break;
-      case VALUE_TEXT:
-        strbuf_append(&sql, " DEFAULT %Q", VALUE_AS_TEXT(columns[i].default_value));
-        break;
-      case VALUE_FUNC:
-        strbuf_append(&sql, " DEFAULT (%s)", VALUE_AS_FUNC(columns[i].default_value));
-        break;
-      case VALUE_DOUBLE:
-        strbuf_append(&sql, " DEFAULT %g", VALUE_AS_DOUBLE(columns[i].default_value));
-        break;
-      case VALUE_INTEGER:
-        strbuf_append(&sql, " DEFAULT %d", VALUE_AS_INT(columns[i].default_value));
-        break;
+    default:
+      break;
+    case VALUE_TEXT:
+      strbuf_append(&sql, " DEFAULT %Q", VALUE_AS_TEXT(columns[i].default_value));
+      break;
+    case VALUE_FUNC:
+      strbuf_append(&sql, " DEFAULT (%s)", VALUE_AS_FUNC(columns[i].default_value));
+      break;
+    case VALUE_DOUBLE:
+      strbuf_append(&sql, " DEFAULT %g", VALUE_AS_DOUBLE(columns[i].default_value));
+      break;
+    case VALUE_INTEGER:
+      strbuf_append(&sql, " DEFAULT %d", VALUE_AS_INT(columns[i].default_value));
+      break;
     }
 
     if (columns[i].column_constraints != NULL) {
@@ -778,7 +790,8 @@ static int sql_create_table(sqlite3 *db, const char *db_name, const table_info_t
 
 #define SQL_CREATE 1
 
-static int sql_init_check_table(sqlite3 *db, const char *db_name, const table_info_t *table_info, int flags, errorstream_t *error) {
+static int sql_init_check_table(sqlite3 *db, const char *db_name, const table_info_t *table_info, int flags,
+                                errorstream_t *error) {
   if (error == NULL) {
     return SQLITE_MISUSE;
   }
@@ -812,7 +825,8 @@ static int sql_init_check_table(sqlite3 *db, const char *db_name, const table_in
   return result;
 }
 
-int sql_check_table(sqlite3 *db, const char *db_name, const table_info_t *table_info, int check_flags, errorstream_t *error) {
+int sql_check_table(sqlite3 *db, const char *db_name, const table_info_t *table_info, int check_flags,
+                    errorstream_t *error) {
   return sql_init_check_table(db, db_name, table_info, check_flags & ~SQL_CREATE, error);
 }
 
@@ -820,21 +834,13 @@ int sql_init_table(sqlite3 *db, const char *db_name, const table_info_t *table_i
   return sql_init_check_table(db, db_name, table_info, SQL_CREATE | SQL_MUST_EXIST, error);
 }
 
-int sql_begin(sqlite3 *db, char *name) {
-  return sql_exec(db, "SAVEPOINT %Q", name);
-}
+int sql_begin(sqlite3 *db, char *name) { return sql_exec(db, "SAVEPOINT %Q", name); }
 
-int sql_commit(sqlite3 *db, char *name) {
-  return sql_exec(db, "RELEASE SAVEPOINT %Q", name);
-}
+int sql_commit(sqlite3 *db, char *name) { return sql_exec(db, "RELEASE SAVEPOINT %Q", name); }
 
-int sql_rollback(sqlite3 *db, char *name) {
-  return sql_exec(db, "ROLLBACK TO SAVEPOINT %Q", name);
-}
+int sql_rollback(sqlite3 *db, char *name) { return sql_exec(db, "ROLLBACK TO SAVEPOINT %Q", name); }
 
-int sql_init_stmt(sqlite3_stmt **stmt, sqlite3 *db, char *sql) {
-  return sql_stmt_init(stmt, db, sql);
-}
+int sql_init_stmt(sqlite3_stmt **stmt, sqlite3 *db, char *sql) { return sql_stmt_init(stmt, db, sql); }
 
 static int sql_integrity_check_row(sqlite3 *db, sqlite3_stmt *stmt, void *data) {
   const char *row = (const char *)sqlite3_column_text(stmt, 0);
@@ -878,17 +884,16 @@ static int sql_foreign_key_info_row(sqlite3 *db, sqlite3_stmt *stmt, void *data)
   }
 }
 
-static int sql_foreign_key_info(sqlite3 *db, const char *db_name, const char *table_name, int index, foreign_key_info_t *info, errorstream_t *error) {
+static int sql_foreign_key_info(sqlite3 *db, const char *db_name, const char *table_name, int index,
+                                foreign_key_info_t *info, errorstream_t *error) {
   sql_foreign_key_info_data data;
   memset(&data, 0, sizeof(sql_foreign_key_info_data));
   data.info = info;
   data.index = index;
   data.found = 0;
 
-  int result = sql_exec_stmt(
-                 db, sql_foreign_key_info_row, NULL, &data,
-                 "PRAGMA \"%w\".foreign_key_list(\"%w\")", db_name, table_name
-               );
+  int result = sql_exec_stmt(db, sql_foreign_key_info_row, NULL, &data, "PRAGMA \"%w\".foreign_key_list(\"%w\")",
+                             db_name, table_name);
   if (result == SQLITE_OK && !data.found) {
     error_append(error, "Could not find foreign key in table %s with index %d", table_name, index);
     result = SQLITE_ERROR;
@@ -920,12 +925,14 @@ static int sql_foreign_key_check_row(sqlite3 *db, sqlite3_stmt *stmt, void *data
     goto exit;
   }
 
-  result = sql_exec_for_string(db, &value, "SELECT \"%w\" FROM \"%w\".\"%w\" WHERE ROWID = %d", info.from_column, d->db_name, table, rowId);
+  result = sql_exec_for_string(db, &value, "SELECT \"%w\" FROM \"%w\".\"%w\" WHERE ROWID = %d", info.from_column,
+                               d->db_name, table, rowId);
   if (result != SQLITE_OK) {
     goto exit;
   }
 
-  error_append(d->error, "%s: foreign key from '%s' to '%s.%s' failed for value '%s'", table, info.from_column, referred_table, info.to_column, value);
+  error_append(d->error, "%s: foreign key from '%s' to '%s.%s' failed for value '%s'", table, info.from_column,
+               referred_table, info.to_column, value);
 
 exit:
   sqlite3_free((void *)info.table);
@@ -939,20 +946,13 @@ exit:
 }
 
 static int sql_foreign_key_check(sqlite3 *db, const char *db_name, errorstream_t *error) {
-  foreign_key_check_data data = {
-    db_name,
-    error
-  };
+  foreign_key_check_data data = {db_name, error};
   return sql_exec_stmt(db, sql_foreign_key_check_row, NULL, &data, "PRAGMA foreign_key_check");
 }
 
-typedef int(*check_func)(sqlite3 *db, const char *db_name, errorstream_t *error);
+typedef int (*check_func)(sqlite3 *db, const char *db_name, errorstream_t *error);
 
-static check_func checks[] = {
-  sql_integrity_check,
-  sql_foreign_key_check,
-  NULL
-};
+static check_func checks[] = {sql_integrity_check, sql_foreign_key_check, NULL};
 
 int sql_check_integrity(sqlite3 *db, const char *db_name, errorstream_t *error) {
   int result = SQLITE_OK;
@@ -969,7 +969,8 @@ int sql_check_integrity(sqlite3 *db, const char *db_name, errorstream_t *error) 
   return result;
 }
 
-int sql_create_function(sqlite3 *db, const char *name, void (*function)(sqlite3_context *, int, sqlite3_value **), int args, int flags, void *user_data, void (*destroy)(void *), errorstream_t *error) {
+int sql_create_function(sqlite3 *db, const char *name, void (*function)(sqlite3_context *, int, sqlite3_value **),
+                        int args, int flags, void *user_data, void (*destroy)(void *), errorstream_t *error) {
   int function_flags = SQLITE_UTF8;
 
 #if SQLITE_VERSION_NUMBER >= 3008003
@@ -978,9 +979,7 @@ int sql_create_function(sqlite3 *db, const char *name, void (*function)(sqlite3_
   }
 #endif
 
-  int result = sqlite3_create_function_v2(
-                 db, name, args, function_flags, user_data, function, NULL, NULL, destroy
-               );
+  int result = sqlite3_create_function_v2(db, name, args, function_flags, user_data, function, NULL, NULL, destroy);
   if (result != SQLITE_OK) {
     error_append(error, "Error registering function %s/%d: %s", name, args, sqlite3_errmsg(db));
   }

@@ -16,7 +16,7 @@
 #ifndef GPKG_H
 #define GPKG_H
 
-#include <sqlite3ext.h>
+#include <sqlite3.h>
 
 #ifdef GPKG_HAVE_CONFIG_H
 #include "config.h"
@@ -48,27 +48,18 @@ GPKG_EXPORT const char *GPKG_CALL gpkg_libversion();
 /**
  * Entry point for the libgpkg SQLite extension that forces usage of the GeoPackage database schema.
  */
+GPKG_EXPORT void geopackage_init();
+
+/**
+ * Entry point for the libgpkg SQLite extension that forces usage of the GeoPackage database schema.
+ */
 GPKG_EXPORT int GPKG_CALL sqlite3_gpkg_init(sqlite3 *db, const char **pzErrMsg, const sqlite3_api_routines *pThunk);
 
 /**
  * Entry point for the libgpkg SQLite extension that attempts to autodetect the schema to use.
  */
-GPKG_EXPORT int GPKG_CALL sqlite3_gpkg_auto_init(sqlite3 *db, const char **pzErrMsg, const sqlite3_api_routines *pThunk);
-
-/**
- * Entry point for the libgpkg SQLite extension that forces usage of the Spatialite 2.x database schema.
- */
-GPKG_EXPORT int GPKG_CALL sqlite3_gpkg_spl2_init(sqlite3 *db, const char **pzErrMsg, const sqlite3_api_routines *pThunk);
-
-/**
- * Entry point for the libgpkg SQLite extension that forces usage of the Spatialite 3.x database schema.
- */
-GPKG_EXPORT int GPKG_CALL sqlite3_gpkg_spl3_init(sqlite3 *db, const char **pzErrMsg, const sqlite3_api_routines *pThunk);
-
-/**
- * Entry point for the libgpkg SQLite extension that forces usage of the Spatialite 4.x database schema.
- */
-GPKG_EXPORT int GPKG_CALL sqlite3_gpkg_spl4_init(sqlite3 *db, const char **pzErrMsg, const sqlite3_api_routines *pThunk);
+GPKG_EXPORT int GPKG_CALL sqlite3_gpkg_auto_init(sqlite3 *db, const char **pzErrMsg,
+                                                 const sqlite3_api_routines *pThunk);
 
 #ifdef __cplusplus
 }

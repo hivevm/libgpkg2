@@ -4346,10 +4346,6 @@ int main(int argc, char **argv){
       }
     }else if( strcmp(z,"-gpkg")==0 ){
       data.gpkgEntryPoint = sqlite3_gpkg_init;
-    }else if( strcmp(z,"-spl3")==0 ){
-      data.gpkgEntryPoint = sqlite3_gpkg_spl3_init;
-    }else if( strcmp(z,"-spl4")==0 ){
-      data.gpkgEntryPoint = sqlite3_gpkg_spl4_init;
     }
   }
   if( data.zDbFilename==0 ){

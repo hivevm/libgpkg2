@@ -1,43 +1,50 @@
-cmake_minimum_required( VERSION 2.8.9 )
+cmake_minimum_required(VERSION 3.21)
 
-set( CMAKE_POSITION_INDEPENDENT_CODE true )
-set( CMAKE_USER_MAKE_RULES_OVERRIDE ${CMAKE_CURRENT_SOURCE_DIR}/c_overrides.cmake )
-set( CMAKE_USER_MAKE_RULES_OVERRIDE_CXX ${CMAKE_CURRENT_SOURCE_DIR}/cxx_overrides.cmake )
+project(gpkg VERSION 0.9.18 LANGUAGES C CXX)
 
-project( libgpkg )
-
-#
-# Required CMake modules
-#
-include( CheckIncludeFile )
-include( CMakeDependentOption )
-include( CheckFunctionExists )
-
-# Load version info from version.txt
-file( STRINGS version.txt gpkg_VERSION )
-list( GET gpkg_VERSION 0 gpkg_VERSION_MAJOR )
-string( REGEX REPLACE "^.*:=" "" gpkg_VERSION_MAJOR ${gpkg_VERSION_MAJOR} )
-list( GET gpkg_VERSION 1 gpkg_VERSION_MINOR )
-string( REGEX REPLACE "^.*:=" "" gpkg_VERSION_MINOR ${gpkg_VERSION_MINOR} )
-list( GET gpkg_VERSION 2 gpkg_VERSION_PATCH )
-string( REGEX REPLACE "^.*:=" "" gpkg_VERSION_PATCH ${gpkg_VERSION_PATCH} )
-
-set( gpkg_BUILD_VERSION "${gpkg_VERSION_MAJOR}.${gpkg_VERSION_MINOR}.${gpkg_VERSION_PATCH}" )
-set( gpkg_INTERFACE_VERSION ${gpkg_VERSION_MAJOR} )
-
-option( GPKG_TEST "Enable Testing?" OFF )
-option( GPKG_COVERAGE "Enable Code coverage?" OFF )
-option( GPKG_GEOS "Enable GEOS-based geometry functions?" OFF )
-cmake_dependent_option( GPKG_GEOS_DL "Allow GEOS to be loaded at runtime instead of linking?" OFF "GPKG_GEOS" OFF)
-option( GPKG_BOOST_GEOMETRY "Enable Boost.Geometry-based geometry functions?" OFF )
-
-if ( ${CMAKE_SYSTEM_NAME} MATCHES "Darwin" )
-  set( CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mmacosx-version-min=10.5" )
+# Force build in proper directory
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
+  message(FATAL_ERROR
+    "In-source builds are not supported.\n"
+    "Remove CMakeCache.txt and CMakeFiles/, then run:\n"
+    "  cmake -S . -B build"
+  )
 endif()
 
-find_package( Doxygen )
-if( DOXYGEN_FOUND )
-  configure_file( ${CMAKE_CURRENT_SOURCE_DIR}/Doxyfile.in ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile @ONLY )
+
+# Set C++ standard
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+set(CMAKE_POSITION_INDEPENDENT_CODE true)
+set(CMAKE_USER_MAKE_RULES_OVERRIDE ${CMAKE_CURRENT_SOURCE_DIR}/c_overrides.cmake)
+set(CMAKE_USER_MAKE_RULES_OVERRIDE_CXX ${CMAKE_CURRENT_SOURCE_DIR}/cxx_overrides.cmake)
+
+set(GPKG_BUILD_VERSION "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR_VERSION_MINOR}.${PROJECT_VERSION_PATCH}")
+set(GPKG_INTERFACE_VERSION ${PROJECT_VERSION_MAJOR})
+
+
+# Required CMake modules
+include(CMakeDependentOption)
+include(CheckIncludeFile)
+include(CheckFunctionExists)
+
+option(GPKG_TEST "Enable Testing?" OFF)
+option(GPKG_COVERAGE "Enable Code coverage?" OFF)
+option(GPKG_GEOS "Enable GEOS-based geometry functions?" OFF)
+cmake_dependent_option(GPKG_GEOS_DL "Allow GEOS to be loaded at runtime instead of linking?" OFF "GPKG_GEOS" OFF)
+option(GPKG_BOOST_GEOMETRY "Enable Boost.Geometry-based geometry functions?" OFF)
+
+
+
+add_subdirectory(gpkg)
+add_subdirectory(shell)
+add_subdirectory(sqlite)
+
+
+find_package(Doxygen)
+if(DOXYGEN_FOUND)
+  configure_file(${CMAKE_CURRENT_SOURCE_DIR}/Doxyfile.in ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile @ONLY)
   add_custom_target(
     doc ${DOXYGEN_EXECUTABLE} ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
@@ -45,11 +52,8 @@ if( DOXYGEN_FOUND )
   )
 endif()
 
-add_subdirectory( gpkg )
-add_subdirectory( shell )
-add_subdirectory( sqlite )
 
-if( GPKG_TEST )
-  include( CTest )
-  add_subdirectory( test )
+if(GPKG_TEST)
+  include(CTest)
+  add_subdirectory(test)
 endif()

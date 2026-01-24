@@ -1,0 +1,20 @@
+name: Build Geopackage
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository contents
+        uses: actions/checkout@v6
+
+      - name: Build
+        run: |
+            docker run \
+            -e WORKING_DIR="$PWD" \
+            -v $PWD:$PWD alpine:edge $PWD/.github/workflows/build_alpine.sh

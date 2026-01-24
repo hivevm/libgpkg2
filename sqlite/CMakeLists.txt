@@ -28,6 +28,15 @@ check_function_exists(strerror_r HAVE_STRERROR_R)
 
 set(SQLITE_ENABLE_RTREE 1)
 
+set(SQLITE_ENABLE_FTS3 1)
+set(SQLITE_ENABLE_FTS3_PARENTHESIS 1)
+set(SQLITE_ENABLE_FTS5 1)
+
+set(SQLITE_DISABLE_LFS 1)
+set(SQLITE_ENABLE_COLUMN_METADATA 1)
+
+# set(SQLITE_OMIT_LOAD_EXTENSION 1)
+
 find_package(Threads)
 if(CMAKE_USE_PTHREADS_INIT)
   set(SQLITE_THREADSAFE 2)
@@ -44,7 +53,7 @@ if(UNIX)
   target_link_libraries(sqlite_shared "${CMAKE_DL_LIBS}")
 endif()
 
-configure_file("${CMAKE_CURRENT_SOURCE_DIR}/config.h.in" "${CMAKE_CURRENT_BINARY_DIR}/config.h")
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/config.h.in" "${CMAKE_CURRENT_BINARY_DIR}/sqlite_cfg.h")
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
 #

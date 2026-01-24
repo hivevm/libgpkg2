@@ -1,0 +1,3 @@
+[submodule "icu/src"]
+	path = icu/src
+	url = https://github.com/unicode-org/icu.git

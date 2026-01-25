@@ -35,72 +35,72 @@ static double realmod(const double a, const double b) {
   return a - static_cast<double>(div) * b;
 }
 
-template <typename T> auto qLn(T v) {
-  using std::log;
-  return log(v);
-}
+// template <typename T> auto qLn(T v) {
+//   using std::log;
+//   return log(v);
+// }
 
-template <typename T> auto qExp(T v) {
-  using std::exp;
-  return exp(v);
-}
+// template <typename T> auto qExp(T v) {
+//   using std::exp;
+//   return exp(v);
+// }
 
-template <typename T> auto qTan(T v) {
-  using std::tan;
-  return tan(v);
-}
+// template <typename T> auto qTan(T v) {
+//   using std::tan;
+//   return tan(v);
+// }
 
-template <typename T> auto qAtan(T v) {
-  using std::atan;
-  return atan(v);
-}
-template <typename T> constexpr inline const T &qMin(const T &a, const T &b) { return (a < b) ? a : b; }
-template <typename T> constexpr inline const T &qMax(const T &a, const T &b) { return (a < b) ? b : a; }
-template <typename T> constexpr inline const T &qBound(const T &min, const T &val, const T &max) {
-  return qMax(min, qMin(max, val));
-}
+// template <typename T> auto qAtan(T v) {
+//   using std::atan;
+//   return atan(v);
+// }
+// template <typename T> constexpr inline const T &qMin(const T &a, const T &b) { return (a < b) ? a : b; }
+// template <typename T> constexpr inline const T &qMax(const T &a, const T &b) { return (a < b) ? b : a; }
+// template <typename T> constexpr inline const T &qBound(const T &min, const T &val, const T &max) {
+//   return qMax(min, qMin(max, val));
+// }
 
 static void wgs84ToMeractor(double *x, double *y) {
-  double lon = *y / 360.0 + 0.5;
-  double lat = *x;
-  lat = 0.5 - qLn(qTan((M_PI / 4.0) + (M_PI / 2.0) * lat / 180.0)) / M_PI / 2.0;
-  lat = qBound(0.0, lat, 1.0); // latitudes > 85° are clamped to 85° (and
-                               // mirrored on other emisphere)
-  *y = (lon - 0.5) * GLOBAL_MERCATOR;
-  *x = (0.5 - lat) * GLOBAL_MERCATOR;
+  // double lon = *y / 360.0 + 0.5;
+  // double lat = *x;
+  // lat = 0.5 - qLn(qTan((M_PI / 4.0) + (M_PI / 2.0) * lat / 180.0)) / M_PI / 2.0;
+  // lat = qBound(0.0, lat, 1.0); // latitudes > 85° are clamped to 85° (and
+  //                              // mirrored on other emisphere)
+  // *y = (lon - 0.5) * GLOBAL_MERCATOR;
+  // *x = (0.5 - lat) * GLOBAL_MERCATOR;
 }
 
 static void meractorToWGS84(double *x, double *y) {
-  double fx = 0.5 + *x / GLOBAL_MERCATOR;
-  double fy = 0.5 - *y / GLOBAL_MERCATOR;
+  // double fx = 0.5 + *x / GLOBAL_MERCATOR;
+  // double fy = 0.5 - *y / GLOBAL_MERCATOR;
 
-  if (fy < 0.0) {
-    fy = 0.0;
-  } else if (fy > 1.0) {
-    fy = 1.0;
-  }
+  // if (fy < 0.0) {
+  //   fy = 0.0;
+  // } else if (fy > 1.0) {
+  //   fy = 1.0;
+  // }
 
-  double lon;
+  // double lon;
 
-  if (fy == 0.0) {
-    lon = 90.0;
-  } else if (fy == 1.0) {
-    lon = -90.0;
-  } else {
-    lon = (180.0 / M_PI) * (2.0 * qAtan(qExp(M_PI * (1.0 - 2.0 * fy))) - (M_PI / 2.0));
-  }
+  // if (fy == 0.0) {
+  //   lon = 90.0;
+  // } else if (fy == 1.0) {
+  //   lon = -90.0;
+  // } else {
+  //   lon = (180.0 / M_PI) * (2.0 * qAtan(qExp(M_PI * (1.0 - 2.0 * fy))) - (M_PI / 2.0));
+  // }
 
-  double lat;
+  // double lat;
 
-  if (fx >= 0) {
-    lat = realmod(fx, 1.0);
-  } else {
-    lat = realmod(1.0 - realmod(-1.0 * fx, 1.0), 1.0);
-  }
+  // if (fx >= 0) {
+  //   lat = realmod(fx, 1.0);
+  // } else {
+  //   lat = realmod(1.0 - realmod(-1.0 * fx, 1.0), 1.0);
+  // }
 
-  lat = lat * 360.0 - 180.0;
-  *x = lat;
-  *y = lon;
+  // lat = lat * 360.0 - 180.0;
+  // *x = lat;
+  // *y = lon;
 }
 
 class Wgs84Projection : public Transform {

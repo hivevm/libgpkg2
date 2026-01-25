@@ -71,8 +71,7 @@ file(GLOB_RECURSE BOOST_GEOMETRY_SOURCE
 include_directories("${PROJECT_SOURCE_DIR}/boost")
 
 
-list(APPEND GPKG_SOURCE_FILES 
-  ${BOOST_GEOMETRY_SOURCE}
+list(APPEND GPKG_SOURCE_FILES
   boost_geom_func.cpp
   boost_geom_io.cpp
   boost_geom_io.hpp
@@ -92,15 +91,23 @@ endif()
 
 
 # Static and shared library version of geopackage.
-add_library(gpkg_static STATIC ${GPKG_SOURCE_FILES})
-set_target_properties(gpkg_static PROPERTIES OUTPUT_NAME "gpkg")
-set_target_properties(gpkg_static PROPERTIES LIBRARY_OUTPUT_DIRECTORY static)
-set_target_properties(gpkg_static PROPERTIES COMPILE_DEFINITIONS "SQLITE_CORE=1")
+add_library(gpkg_static STATIC
+  ${GPKG_SOURCE_FILES}
+)
+set_target_properties(gpkg_static PROPERTIES
+  OUTPUT_NAME "gpkg"
+  LIBRARY_OUTPUT_DIRECTORY static
+  COMPILE_DEFINITIONS "SQLITE_CORE=1"
+)
 
 if (NOT IOS)
-  add_library(gpkg_shared SHARED ${GPKG_SOURCE_FILES})
-  set_target_properties(gpkg_shared PROPERTIES OUTPUT_NAME "gpkg")
-  set_target_properties(gpkg_shared PROPERTIES LIBRARY_OUTPUT_DIRECTORY shared)
+  add_library(gpkg_shared SHARED
+  ${GPKG_SOURCE_FILES}
+)
+  set_target_properties(gpkg_shared PROPERTIES
+    OUTPUT_NAME "gpkg"
+    LIBRARY_OUTPUT_DIRECTORY shared
+  )
 endif()
 
 
@@ -139,8 +146,8 @@ endif()
 
 if (MSVC)
   add_definitions(-DGPKG_CALL=__cdecl)
-  set_target_properties(gpkg_shared PROPERTIES COMPILE_DEFINITIONS "SQLITE_API=__declspec\(dllexport\)")
-  set_target_properties(gpkg_shared PROPERTIES COMPILE_DEFINITIONS "GPKG_EXPORT=__declspec\(dllexport\)")
+  set_target_properties(gpkg_shared PROPERTIES
+    COMPILE_DEFINITIONS "SQLITE_API=__declspec\(dllexport\);GPKG_EXPORT=__declspec\(dllexport\)")
   set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /TP")
 endif()
 

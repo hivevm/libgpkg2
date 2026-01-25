@@ -119,6 +119,7 @@ typedef unsigned short int u16;
 #include <assert.h>
 #include <math.h>
 #include "sqlite3.h"
+#include "spatialdb.h"
 typedef sqlite3_int64 i64;
 typedef sqlite3_uint64 u64;
 typedef unsigned char u8;
@@ -33078,6 +33079,7 @@ int SQLITE_CDECL wmain(int argc, wchar_t **wargv){
   char **argvToFree = 0;
   int argcToFree = 0;
 #endif
+  sqlite3_auto_extension((void (*)(void))init_geopackage_extension);
   setvbuf(stderr, 0, _IONBF, 0); /* Make sure stderr is unbuffered */
 
 #ifdef SQLITE_SHELL_FIDDLE

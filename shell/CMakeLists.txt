@@ -7,13 +7,13 @@ add_executable(GPKG_SHELL shell.c)
 
 include_directories(
   "${PROJECT_SOURCE_DIR}/sqlite"
-  # "${PROJECT_SOURCE_DIR}/gpkg"
+  "${PROJECT_SOURCE_DIR}/gpkg"
   "${PROJECT_BINARY_DIR}"
 )
 
 target_link_libraries(GPKG_SHELL
-  sqlite_static
-  # gpkg_static
+  #sqlite_static
+  gpkg_static
 )
 
 find_package(Readline)

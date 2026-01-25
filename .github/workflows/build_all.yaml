@@ -19,11 +19,14 @@ jobs:
       - name: Build
         run: cmake --build build --config Release
 
+      - name: Install
+        run: cmake --install build --config Release --prefix ./install
+
       - name: Upload artifact
         uses: actions/upload-artifact@v6
         with:
           name: library-linux
-          path: build/*.a
+          path: install
           retention-days: 5
 
   build-macos:
@@ -39,11 +42,14 @@ jobs:
       - name: Build
         run: cmake --build build --config Release
 
+      - name: Install
+        run: cmake --install build --config Release --prefix ./install
+
       - name: Upload artifact
         uses: actions/upload-artifact@v6
         with:
           name: library-macos
-          path: build/*.a
+          path: install
           retention-days: 5
 
   build-windows:
@@ -59,11 +65,14 @@ jobs:
       - name: Build
         run: cmake --build build --config Release
 
+      - name: Install
+        run: cmake --install build --config Release --prefix ./install
+
       - name: Upload artifact
         uses: actions/upload-artifact@v6
         with:
           name: library-windows
-          path: build/Release/*.lib
+          path: install
           retention-days: 5
 
   build-ios:
@@ -97,13 +106,17 @@ jobs:
           echo "Build directory contents:"
           find build -name "*.a" -o -name "*.framework"
 
+      - name: Install
+        run: cmake --install build --config Release --prefix ./install
+
       - name: Upload artifact
         uses: actions/upload-artifact@v6
         with:
           name: library-ios
-          path: |
-            build/Release-${{ matrix.platform.sdk }}/*.a
-            build/Release/*.a
+          path: install
+          # path: |
+          #   build/Release-${{ matrix.platform.sdk }}/*.a
+          #   build/Release/*.a
           retention-days: 5
 
   build-android:
@@ -132,14 +145,18 @@ jobs:
             -DCMAKE_ANDROID_STL_TYPE=c++_static \
             -DCMAKE_ANDROID_API=21 \
             -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/install" \
             -DANDROID=TRUE
 
       - name: Build
-        run: cmake --build build-${{ matrix.abi }} --config Release
+        run: cmake --build build-${{ matrix.abi }}
+
+      - name: Install
+        run: cmake --install build-${{ matrix.abi }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v6
         with:
           name: library-android-${{ matrix.abi }}
-          path: build-${{ matrix.abi }}/*.a
+          path: install
           retention-days: 5

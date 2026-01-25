@@ -34,21 +34,11 @@ option(GPKG_COVERAGE "Enable Code coverage?" OFF)
 option(GPKG_ICU "Enable International Components for Unicode (ICU)?" OFF)
 
 
-
-add_subdirectory(gpkg)
-add_subdirectory(shell)
 add_subdirectory(sqlite)
-
-
-find_package(Doxygen)
-if(DOXYGEN_FOUND)
-  configure_file(${CMAKE_CURRENT_SOURCE_DIR}/Doxyfile.in ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile @ONLY)
-  add_custom_target(
-    doc ${DOXYGEN_EXECUTABLE} ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile
-    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-    COMMENT "Generating API documentation with Doxygen" VERBATIM
-  )
-endif()
+add_subdirectory(gpkg)
+if(NOT ANDROID AND NOT IOS) 
+    add_subdirectory(shell)
+endif()  
 
 
 # International Components for Unicode (ICU)
@@ -62,3 +52,83 @@ if(GPKG_TEST)
   include(CTest)
   add_subdirectory(test)
 endif()
+
+find_package(Doxygen)
+    if(DOXYGEN_FOUND)
+        configure_file(${CMAKE_CURRENT_SOURCE_DIR}/Doxyfile.in ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile @ONLY)
+        add_custom_target(
+            doc ${DOXYGEN_EXECUTABLE} ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile
+            WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+            COMMENT "Generating API documentation with Doxygen" VERBATIM
+        )
+endif()
+
+# ####################################################
+
+# # Library source files
+# set(LIBRARY_SOURCES
+#     sqlite/sqlite3.c
+# )
+
+# # Library header files
+# set(LIBRARY_HEADERS
+#     sqlite/sqlite3.h
+#     sqlite/sqlite3ext.h
+# )
+
+# # Create static library
+# add_library(${PROJECT_NAME} STATIC
+#     ${LIBRARY_SOURCES}
+#     ${LIBRARY_HEADERS}
+# )
+
+# # install(
+# #     DIRECTORY include/
+# #     DESTINATION include
+# #     FILES_MATCHING
+# #         REGEX "^boost/.*\\.(h|hpp)$"
+# # )
+
+# # Set the public include directories for build and install
+# target_include_directories(${PROJECT_NAME}
+#     PUBLIC
+#         $<BUILD_INTERFACE:
+#             ${CMAKE_CURRENT_SOURCE_DIR}/boost
+#             ${CMAKE_CURRENT_SOURCE_DIR}/include
+#         >
+#         $<INSTALL_INTERFACE:include>
+# )
+
+# # C/C++ Version definitions
+# target_compile_definitions(gpkg
+#   PRIVATE
+#     GPKG_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
+#     GPKG_VERSION_MINOR=${PROJECT_VERSION_MINOR}
+#     GPKG_VERSION_PATCH=${PROJECT_VERSION_PATCH}
+# )
+
+# # Platform-specific settings
+# if(ANDROID)
+#     target_compile_definitions(${PROJECT_NAME} PRIVATE PLATFORM_ANDROID)
+# elseif(IOS)
+#     target_compile_definitions(${PROJECT_NAME} PRIVATE PLATFORM_IOS)
+#     # Remove FRAMEWORK settings - we want a static library, not a framework
+#     # set_target_properties(${PROJECT_NAME} PROPERTIES
+#     #     FRAMEWORK TRUE
+#     #     MACOSX_FRAMEWORK_IDENTIFIER org.hivevm.mylibrary
+#     # )
+# elseif(WIN32)
+#     target_compile_definitions(${PROJECT_NAME} PRIVATE PLATFORM_WINDOWS)
+# elseif(APPLE)
+#     target_compile_definitions(${PROJECT_NAME} PRIVATE PLATFORM_MACOS)
+# elseif(UNIX)
+#     target_compile_definitions(${PROJECT_NAME} PRIVATE PLATFORM_LINUX)
+# endif()
+
+
+# # Installation rules
+# install(TARGETS ${PROJECT_NAME}
+#     ARCHIVE DESTINATION lib
+#     LIBRARY DESTINATION lib
+#     FRAMEWORK DESTINATION lib
+# )

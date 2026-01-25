@@ -12,6 +12,7 @@ apk add \
 mkdir build
 cd build
 
-cmake ..
+cmake .. \
+    -DGPKG_ICU=0
 
 make -j$(nproc)

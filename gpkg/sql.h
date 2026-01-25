@@ -316,11 +316,13 @@ int sql_check_table_exists(sqlite3 *db, const char *db_name, const char *table_n
  * @param db_name the name of the attached database to use. This can be 'main', 'temp' or any attached database.
  * @param table_name the name of the table to check.
  * @param column_name the name of the column to check.
- * @param[out] exists on success, exists will be set to 1 if the given table has a column with the given name or to 0 otherwise
+ * @param[out] exists on success, exists will be set to 1 if the given table has a column with the given name or to 0
+ * otherwise
  * @return SQLITE_OK if the column check was successful\n
  *         A SQLite error code otherwise
  */
-int sql_check_column_exists(sqlite3 *db, const char *db_name, const char *table_name, const char *column_name, int *exists);
+int sql_check_column_exists(sqlite3 *db, const char *db_name, const char *table_name, const char *column_name,
+                            int *exists);
 
 #define SQL_MUST_EXIST (1 << 1)
 #define SQL_CHECK_DEFAULT_VALUES (1 << 2)
@@ -329,19 +331,21 @@ int sql_check_column_exists(sqlite3 *db, const char *db_name, const char *table_
 #define SQL_CHECK_NULLABLE (1 << 5)
 #define SQL_CHECK_ALL_DATA (1 << 6)
 
-#define SQL_CHECK_ALL (SQL_CHECK_DEFAULT_VALUES | SQL_CHECK_DEFAULT_DATA | SQL_CHECK_PRIMARY_KEY | SQL_CHECK_NULLABLE | SQL_CHECK_ALL_DATA)
+#define SQL_CHECK_ALL                                                                                                  \
+  (SQL_CHECK_DEFAULT_VALUES | SQL_CHECK_DEFAULT_DATA | SQL_CHECK_PRIMARY_KEY | SQL_CHECK_NULLABLE | SQL_CHECK_ALL_DATA)
 
 /**
  * Checks if a table matches the given table specification.
  * @param db the SQLite database context
  * @param db_name the name of the attached database to use. This can be 'main', 'temp' or any attached database.
  * @param table_info the table specification
- * @param[out] error on successful exit, error will contain the number of cases where the actual table did not match the specification.
- *                   and descriptive error messages
+ * @param[out] error on successful exit, error will contain the number of cases where the actual table did not match the
+ * specification. and descriptive error messages
  * @return SQLITE_OK if the table was checked successfully\n
  *         A SQLite error code otherwise
  */
-int sql_check_table(sqlite3 *db, const char *db_name, const table_info_t *table_info, int check_flags, errorstream_t *error);
+int sql_check_table(sqlite3 *db, const char *db_name, const table_info_t *table_info, int check_flags,
+                    errorstream_t *error);
 
 int sql_check_integrity(sqlite3 *db, const char *db_name, errorstream_t *error);
 
@@ -365,7 +369,8 @@ typedef void(sql_function)(sqlite3_context *, int, sqlite3_value **);
 
 #define SQL_DETERMINISTIC 1
 
-int sql_create_function(sqlite3 *db, const char *name, sql_function *function, int args, int flags, void *user_data, void (*destroy)(void *), errorstream_t *error);
+int sql_create_function(sqlite3 *db, const char *name, sql_function *function, int args, int flags, void *user_data,
+                        void (*destroy)(void *), errorstream_t *error);
 
 /** @} */
 

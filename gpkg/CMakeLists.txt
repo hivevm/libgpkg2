@@ -19,8 +19,6 @@ set(
   i18n.c
   sql.c
   spatialdb.c
-  spl_db.c
-  spl_geom.c
   strbuf.c
   wkb.c
   wkt.c
@@ -40,53 +38,24 @@ include_directories("${PROJECT_SOURCE_DIR}/sqlite")
 #
 # Geometry functions library
 #
-if(GPKG_GEOS)
-  message(WARNING "GEOS is licensed under LGPL 2.1")
+file(GLOB_RECURSE BOOST_GEOMETRY_SOURCE "${PROJECT_SOURCE_DIR}/boost/boost/*")
+list(APPEND GPKG_SOURCE_FILES ${BOOST_GEOMETRY_SOURCE})
 
-  list(
-    APPEND GPKG_SOURCE_FILES
-    geos.h
-    geos_context.c
-    geos_context.h
-    geos_geom_func.c
-    geos_geom_io.c
-    geos_geom_io.h
-  )
+list(
+  APPEND GPKG_SOURCE_FILES
+  boost_geom_func.cpp
+  boost_geom_io.cpp
+  boost_geom_io.hpp
+  boost_geom_proj.cpp
+  boost_geom_proj.hpp
+  boost_geom_wrapper.cpp
+  boost_geom_wrapper.hpp
+  boost_geometries.hpp
+)
+include_directories("${PROJECT_SOURCE_DIR}/boost")
 
-  if (GPKG_GEOS_DL)
-    set (GPKG_GEOM_FUNC "GPKG_GEOS_DL")
-
-    list(
-      APPEND GPKG_SOURCE_FILES
-      dynlib.h
-    )
-  else()
-    find_package(GEOS REQUIRED)
-    include_directories(${GEOS_INCLUDE_DIR})
-    set (GPKG_GEOM_FUNC "GPKG_GEOS")
-  endif()
-
-  set (GPKG_GEOM_FUNC ${GPKG_GEOM_FUNC} PARENT_SCOPE)
-elseif(GPKG_BOOST_GEOMETRY)
-  message(WARNING "Boost.Geometry support is experimental and unfinished")
-
-  file(GLOB_RECURSE BOOST_GEOMETRY_SOURCE "boost/boost/*")
-  list(APPEND GPKG_SOURCE_FILES ${BOOST_GEOMETRY_SOURCE})
-
-  list(
-    APPEND GPKG_SOURCE_FILES
-    boost_geom_func.cpp
-    boost_geom_io.cpp
-    boost_geom_io.hpp
-    boost_geom_wrapper.cpp
-    boost_geom_wrapper.hpp
-    boost_geometries.hpp
-  )
-  include_directories("boost")
-
-  set(GPKG_GEOM_FUNC "Boost.Geometry")
-  set(GPKG_GEOM_FUNC ${GPKG_GEOM_FUNC} PARENT_SCOPE)
-endif()
+set(GPKG_GEOM_FUNC "Boost.Geometry")
+set(GPKG_GEOM_FUNC ${GPKG_GEOM_FUNC} PARENT_SCOPE)
 
 if (GPKG_GEOM_FUNC)
   list(APPEND GPKG_SOURCE_FILES "geom_func.h")
@@ -102,18 +71,13 @@ set_target_properties(gpkg_static PROPERTIES COMPILE_DEFINITIONS "SQLITE_CORE=1"
 #
 # SQLite loadable extension version of libgpkg
 #
-add_library(gpkg_ext SHARED ${GPKG_SOURCE_FILES} gpkg.c)
-set_target_properties(gpkg_ext PROPERTIES OUTPUT_NAME "gpkg")
-
-if (GPKG_GEOS AND GEOS_FOUND)
-  target_link_libraries(gpkg_ext ${GEOS_LIBRARY})
-  target_link_libraries(gpkg_static ${GEOS_LIBRARY})
-endif()
+add_library(gpkg_shared SHARED ${GPKG_SOURCE_FILES} gpkg.c)
+set_target_properties(gpkg_shared PROPERTIES OUTPUT_NAME "gpkg")
 
 if(NOT WIN32)
   find_library(M_LIB NAMES m PATHS /usr/lib /usr/local/lib)
   if(M_LIB)
-    target_link_libraries(gpkg_ext ${M_LIB})
+    target_link_libraries(gpkg_shared ${M_LIB})
     target_link_libraries(gpkg_static ${M_LIB})
   else()
     message(FATAL_ERROR "math library 'libm' not found")
@@ -125,7 +89,7 @@ configure_file("${CMAKE_CURRENT_SOURCE_DIR}/config.h.in" "${CMAKE_CURRENT_BINARY
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
 set_target_properties(
-  gpkg_ext gpkg_static PROPERTIES
+  gpkg_shared gpkg_static PROPERTIES
   VERSION ${GPKG_BUILD_VERSION}
   SOVERSION ${GPKG_INTERFACE_VERSION}
 )
@@ -141,7 +105,7 @@ endif()
 
 if (MSVC)
   add_definitions(-DGPKG_CALL=__cdecl)
-  set_target_properties(gpkg_ext PROPERTIES COMPILE_DEFINITIONS "GPKG_EXPORT=__declspec\(dllexport\)")
+  set_target_properties(gpkg_shared PROPERTIES COMPILE_DEFINITIONS "GPKG_EXPORT=__declspec\(dllexport\)")
   set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /TP")
 endif()
 
@@ -150,7 +114,7 @@ endif()
 #
 if (WIN32)
   set_target_properties(
-    gpkg_static gpkg_ext PROPERTIES
+    gpkg_static gpkg_shared PROPERTIES
     PREFIX ""
   )
 endif()
@@ -160,10 +124,10 @@ endif()
 #
 if (${CMAKE_C_COMPILER_ID} MATCHES "GNU" AND GPKG_COVERAGE)
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} --coverage")
-  set_target_properties(gpkg_ext PROPERTIES LINK_FLAGS "--coverage")
+  set_target_properties(gpkg_shared PROPERTIES LINK_FLAGS "--coverage")
 endif()
 
 if (UNIX)
-  install(TARGETS gpkg_ext LIBRARY DESTINATION lib)
+  install(TARGETS gpkg_shared LIBRARY DESTINATION lib)
   install(FILES gpkg.h DESTINATION include)
 endif()

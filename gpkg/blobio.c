@@ -15,14 +15,8 @@
  */
 #include "blobio.h"
 
-uint8_t *geom_blob_writer_getdata(geom_blob_writer_t *writer) {
-  return binstream_data(&writer->wkb_writer.stream);
-}
+uint8_t *geom_blob_writer_getdata(geom_blob_writer_t *writer) { return binstream_data(&writer->wkb_writer.stream); }
 
-size_t geom_blob_writer_length(geom_blob_writer_t *writer) {
-  return binstream_available(&writer->wkb_writer.stream);
-}
+size_t geom_blob_writer_length(geom_blob_writer_t *writer) { return binstream_available(&writer->wkb_writer.stream); }
 
-geom_consumer_t *geom_blob_writer_geom_consumer(geom_blob_writer_t *writer) {
-  return &writer->geom_consumer;
-}
+geom_consumer_t *geom_blob_writer_geom_consumer(geom_blob_writer_t *writer) { return &writer->geom_consumer; }

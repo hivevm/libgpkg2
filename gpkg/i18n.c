@@ -4,7 +4,7 @@
 #include "config.h"
 #endif
 
-#include "sqlite.h"
+#include "sqlite3.h"
 
 #if defined(LOCALE_USE__CREATE_LOCALE)
 
@@ -116,12 +116,9 @@ double i18n_strtod(const char *nptr, char **endptr, i18n_locale_t *locale) {
   return result;
 }
 
-i18n_locale_t *i18n_locale_init(const char *locale_name) {
-  return &DUMMY_LOCALE;
-}
+i18n_locale_t *i18n_locale_init(const char *locale_name) { return &DUMMY_LOCALE; }
 
-void i18n_locale_destroy(i18n_locale_t *locale) {
-}
+void i18n_locale_destroy(i18n_locale_t *locale) {}
 
 #else
 
@@ -133,15 +130,10 @@ struct i18n_locale {
 
 static struct i18n_locale DUMMY_LOCALE;
 
-double i18n_strtod(const char *nptr, char **endptr, i18n_locale_t *locale) {
-  return strtod(nptr, endptr);
-}
+double i18n_strtod(const char *nptr, char **endptr, i18n_locale_t *locale) { return strtod(nptr, endptr); }
 
-i18n_locale_t *i18n_locale_init(const char *locale_name) {
-  return &DUMMY_LOCALE;
-}
+i18n_locale_t *i18n_locale_init(const char *locale_name) { return &DUMMY_LOCALE; }
 
-void i18n_locale_destroy(i18n_locale_t *locale) {
-}
+void i18n_locale_destroy(i18n_locale_t *locale) {}
 
 #endif

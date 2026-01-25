@@ -23,34 +23,36 @@ function or using the [load\_extension](http://sqlite.org/lang_corefunc.html#loa
 libgpkg extends SQLite with the function listed below. These function can be used just like any of the core functions
 that SQLite provides.
 
-libgpkg exposes a number of SQLite extension entry points:
-
-- sqlite3_gpkg_init: geopackage mode
-- sqlite3_gpkg_spl2_init: spatialite 2.x mode
-- sqlite3_gpkg_spl3_init: spatialite 3.x mode
-- sqlite3_gpkg_spl4_init: spatialite 4.x mode
-- sqlite3_gpkg_auto_init: auto detect mode
-
-GeoPackage mode is the default mode which will produce sqlite database that comply with the GeoPackage specification.
-
-The Spatialite modes provide limited compatibility with Spatialite 2.x, 3.x and 4.x sqlite databases respectively. These
-modes are not intend to be a replacement for Spatialite, but should provide sufficient compatibility to read and write
-Spatialite database.
-
-The auto-detect mode will attempt to derive the mode that should be used based on the contents of the sqlite database.
-If the database type cannot be determined, GeoPackage will be used.
+libgpkg exposes the _init_geopackage_extension_ to load the geopackage implementation through the boost geometries.
 
 # Compilation
 
 - Install CMake 3.30 or newer. CMake can be downloaded from www.cmake.org or installed using
   your systems package manager.
+- Install the [Boost libraries](boost.md) for geometry support
 - Run 'cmake ..' in the _build_ directory of the project to generate the build scripts for your system or use ccmake .. for the configuration.
 - Build the project using the generated build scripts.
 - The build scripts will generate a number of binaries
     - _build/shell/gpkg_: a modified version of the SQLite 3 command-line shell that autoloads the GeoPackage extension. This is a standalone binary that has been statically linked with SQLite 3 and the GeoPackage extension.
     - _build/gpkg/libgpkg.so_ (or _gpkg.dll_ on Windows): a dynamically loadable SQLite 3 extension that provides the GeoPackage functionality. This extension library can be used with any SQLite 3 that supports extension loading.
 
+# Testing
+
+Use the command line tool built in _build/shell_
+
+~~~bash
+./build/shell/gpkg
+
+.open [PATH_TO_DATABASE]
+
+# Show all tables
+.tables
+
+# Query a spatial table
+SELECT ST_ASTEXT(geom) FROM [TABLE_NAME]
+~~~
 
 # Dependencies
 
 - libgpkg requires SQLite 3.51.0 or higher.
+- libgpkg requires Boost 1.90 or higher.

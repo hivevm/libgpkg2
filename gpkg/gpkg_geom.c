@@ -13,11 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#include <math.h>
 #include <stdio.h>
 #include <string.h>
 #include "gpkg_geom.h"
-#include "sqlite.h"
+#include "sqlite3.h"
 #include "fp.h"
 #include "blobio.h"
 #include "geomio.h"
@@ -26,18 +25,24 @@
 #define GPB_BIG_ENDIAN 0
 #define GPB_LITTLE_ENDIAN 1
 
-#define CHECK_ENV_COMP(gpb, comp, error) \
-    if (gpb->envelope.has_env_##comp) { \
-      if ((gpb->empty && (!fp_isnan(gpb->envelope.min_##comp) || !fp_isnan(gpb->envelope.max_##comp))) || gpb->envelope.min_##comp > gpb->envelope.max_##comp) {\
-          if (error) error_append(error, "GPB envelope min" #comp " > max" #comp ": [min: %g, max: %g]", gpb->envelope.min_##comp, gpb->envelope.max_##comp);\
-          return SQLITE_IOERR;\
-      }\
-    }
-#define CHECK_ENV(gpb, error) CHECK_ENV_COMP(gpb, x, error) CHECK_ENV_COMP(gpb, y, error) CHECK_ENV_COMP(gpb, z, error) CHECK_ENV_COMP(gpb, m, error)
+#define CHECK_ENV_COMP(gpb, comp, error)                                                                               \
+  if (gpb->envelope.has_env_##comp) {                                                                                  \
+    if ((gpb->empty && (!fp_isnan(gpb->envelope.min_##comp) || !fp_isnan(gpb->envelope.max_##comp))) ||                \
+        gpb->envelope.min_##comp > gpb->envelope.max_##comp) {                                                         \
+      if (error)                                                                                                       \
+        error_append(error, "GPB envelope min" #comp " > max" #comp ": [min: %g, max: %g]", gpb->envelope.min_##comp,  \
+                     gpb->envelope.max_##comp);                                                                        \
+      return SQLITE_IOERR;                                                                                             \
+    }                                                                                                                  \
+  }
+#define CHECK_ENV(gpb, error)                                                                                          \
+  CHECK_ENV_COMP(gpb, x, error)                                                                                        \
+  CHECK_ENV_COMP(gpb, y, error) CHECK_ENV_COMP(gpb, z, error) CHECK_ENV_COMP(gpb, m, error)
 
 static size_t gpb_header_size(geom_blob_header_t *gpb) {
-  int coord_count = ((gpb->envelope.has_env_x ? 2 : 0) + (gpb->envelope.has_env_y ? 2 : 0) + (gpb->envelope.has_env_z ? 2 : 0) + (gpb->envelope.has_env_m ? 2 : 0));
-  return (size_t) 4 /* Magic number */  + 4 /* SRID */ + 8 * coord_count /* Envelope */;
+  int coord_count = ((gpb->envelope.has_env_x ? 2 : 0) + (gpb->envelope.has_env_y ? 2 : 0) +
+                     (gpb->envelope.has_env_z ? 2 : 0) + (gpb->envelope.has_env_m ? 2 : 0));
+  return (size_t)4 /* Magic number */ + 4 /* SRID */ + 8 * coord_count /* Envelope */;
 }
 
 int gpb_read_header(binstream_t *stream, geom_blob_header_t *gpb, errorstream_t *error) {
@@ -218,7 +223,7 @@ int gpb_write_header(binstream_t *stream, geom_blob_header_t *gpb, errorstream_t
 static int gpb_begin_geometry(const geom_consumer_t *consumer, const geom_header_t *header, errorstream_t *error) {
   int result = SQLITE_OK;
 
-  geom_blob_writer_t *writer = (geom_blob_writer_t *) consumer;
+  geom_blob_writer_t *writer = (geom_blob_writer_t *)consumer;
   wkb_writer_t *wkb = &writer->wkb_writer;
 
   if (wkb->offset < 0) {
@@ -240,14 +245,15 @@ exit:
   return result;
 }
 
-static int gpb_coordinates(const geom_consumer_t *consumer, const geom_header_t *header, size_t point_count, const double *coords, int skip_coords, errorstream_t *error) {
+static int gpb_coordinates(const geom_consumer_t *consumer, const geom_header_t *header, size_t point_count,
+                           const double *coords, int skip_coords, errorstream_t *error) {
   int result = SQLITE_OK;
 
   if (point_count <= 0) {
     goto exit;
   }
 
-  geom_blob_writer_t *writer = (geom_blob_writer_t *) consumer;
+  geom_blob_writer_t *writer = (geom_blob_writer_t *)consumer;
   wkb_writer_t *wkb = &writer->wkb_writer;
   geom_consumer_t *wkb_consumer = wkb_writer_geom_consumer(wkb);
   result = wkb_consumer->coordinates(wkb_consumer, header, point_count, coords, skip_coords, error);
@@ -276,7 +282,7 @@ exit:
 }
 
 static int gpb_end_geometry(const geom_consumer_t *consumer, const geom_header_t *header, errorstream_t *error) {
-  geom_blob_writer_t *writer = (geom_blob_writer_t *) consumer;
+  geom_blob_writer_t *writer = (geom_blob_writer_t *)consumer;
   wkb_writer_t *wkb = &writer->wkb_writer;
 
   geom_consumer_t *wkb_consumer = wkb_writer_geom_consumer(wkb);
@@ -286,7 +292,7 @@ static int gpb_end_geometry(const geom_consumer_t *consumer, const geom_header_t
 static int gpb_end(const geom_consumer_t *consumer, errorstream_t *error) {
   int result = SQLITE_OK;
 
-  geom_blob_writer_t *writer = (geom_blob_writer_t *) consumer;
+  geom_blob_writer_t *writer = (geom_blob_writer_t *)consumer;
   wkb_writer_t *wkb = &writer->wkb_writer;
   binstream_t *stream = &wkb->stream;
 

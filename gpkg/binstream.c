@@ -17,7 +17,7 @@
 #include <stdio.h>
 #include "binstream.h"
 #include "fp.h"
-#include "sqlite.h"
+#include "sqlite3.h"
 
 int binstream_init(binstream_t *stream, uint8_t *data, size_t length) {
   stream->data = data;
@@ -31,7 +31,7 @@ int binstream_init(binstream_t *stream, uint8_t *data, size_t length) {
 }
 
 int binstream_init_growable(binstream_t *stream, size_t initial_cap) {
-  uint8_t *data = (uint8_t *) sqlite3_malloc((int)(initial_cap * sizeof(uint8_t)));
+  uint8_t *data = (uint8_t *)sqlite3_malloc((int)(initial_cap * sizeof(uint8_t)));
   if (data == NULL) {
     return SQLITE_NOMEM;
   }
@@ -81,7 +81,7 @@ static int binstream_ensurecapacity(binstream_t *stream, size_t needed) {
     if (needed > newcapacity) {
       newcapacity = needed;
     }
-    uint8_t *newdata = (uint8_t *) sqlite3_realloc(stream->data, (int)(newcapacity * sizeof(uint8_t)));
+    uint8_t *newdata = (uint8_t *)sqlite3_realloc(stream->data, (int)(newcapacity * sizeof(uint8_t)));
     if (newdata == NULL) {
       return SQLITE_NOMEM;
     }
@@ -94,9 +94,7 @@ static int binstream_ensurecapacity(binstream_t *stream, size_t needed) {
   }
 }
 
-size_t binstream_position(binstream_t *stream) {
-  return stream->position;
-}
+size_t binstream_position(binstream_t *stream) { return stream->position; }
 
 void binstream_flip(binstream_t *stream) {
   stream->limit = stream->position;
@@ -125,21 +123,13 @@ int binstream_relseek(binstream_t *stream, int32_t amount) {
   return binstream_seek(stream, position + amount);
 }
 
-uint8_t *binstream_data(binstream_t *stream) {
-  return stream->data + stream->position;
-}
+uint8_t *binstream_data(binstream_t *stream) { return stream->data + stream->position; }
 
-size_t binstream_available(binstream_t *stream) {
-  return stream->limit - stream->position;
-}
+size_t binstream_available(binstream_t *stream) { return stream->limit - stream->position; }
 
-void binstream_set_endianness(binstream_t *stream, binstream_endianness e) {
-  stream->end = e;
-}
+void binstream_set_endianness(binstream_t *stream, binstream_endianness e) { stream->end = e; }
 
-binstream_endianness binstream_get_endianness(binstream_t *stream) {
-  return stream->end;
-}
+binstream_endianness binstream_get_endianness(binstream_t *stream) { return stream->end; }
 
 int binstream_read_u8(binstream_t *stream, uint8_t *out) {
   int result = binstream_ensureavailable(stream, stream->position + 1);

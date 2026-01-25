@@ -25,10 +25,7 @@
  * @{
  */
 
-typedef enum {
-  WKB_ISO,
-  WKB_SPATIALITE
-} wkb_dialect;
+typedef enum { WKB_ISO, WKB_SPATIALITE } wkb_dialect;
 
 /**
  * A Well-Known Binary writer. wkb_writer_t instances can be used to generate a WKB blob based on

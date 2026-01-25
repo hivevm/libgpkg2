@@ -1,7 +1,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include "sqlite.h"
+#include "sqlite3.h"
 #include "error.h"
 
 int error_init(errorstream_t *error) {
@@ -12,7 +12,6 @@ int error_init(errorstream_t *error) {
   error->error_count = 0;
   return SQLITE_OK;
 }
-
 
 int error_init_fixed(errorstream_t *error, char *buffer, size_t length) {
   int result = strbuf_init_fixed(&error->message, buffer, length);
@@ -55,10 +54,6 @@ int error_append(errorstream_t *error, const char *msg, ...) {
   return result;
 }
 
-size_t error_count(errorstream_t *error) {
-  return error->error_count;
-}
+size_t error_count(errorstream_t *error) { return error->error_count; }
 
-char *error_message(errorstream_t *error) {
-  return strbuf_data_pointer(&error->message);
-}
+char *error_message(errorstream_t *error) { return strbuf_data_pointer(&error->message); }

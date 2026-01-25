@@ -31,9 +31,6 @@ include(CheckFunctionExists)
 
 option(GPKG_TEST "Enable Testing?" OFF)
 option(GPKG_COVERAGE "Enable Code coverage?" OFF)
-option(GPKG_GEOS "Enable GEOS-based geometry functions?" OFF)
-cmake_dependent_option(GPKG_GEOS_DL "Allow GEOS to be loaded at runtime instead of linking?" OFF "GPKG_GEOS" OFF)
-option(GPKG_BOOST_GEOMETRY "Enable Boost.Geometry-based geometry functions?" OFF)
 option(GPKG_ICU "Enable International Components for Unicode (ICU)?" OFF)
 
 

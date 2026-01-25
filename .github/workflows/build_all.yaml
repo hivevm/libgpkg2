@@ -1,0 +1,145 @@
+name: Build all platforms
+on:
+  workflow_dispatch:
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential
+
+      - name: Configure CMake
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: library-linux
+          path: build/*.a
+          retention-days: 5
+
+  build-macos:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Configure CMake
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: library-macos
+          path: build/*.a
+          retention-days: 5
+
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Configure CMake
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: library-windows
+          path: build/Release/*.lib
+          retention-days: 5
+
+  build-ios:
+    runs-on: macos-latest
+
+    strategy:
+      matrix:
+        platform:
+          - { name: iOS, sdk: iphoneos, arch: arm64 }
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Configure CMake for iOS
+        run: |
+          cmake -B build \
+            -G Xcode \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 \
+            -DCMAKE_OSX_ARCHITECTURES=${{ matrix.platform.arch }} \
+            -DCMAKE_OSX_SYSROOT=${{ matrix.platform.sdk }} \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DIOS=TRUE
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: List build output
+        run: |
+          echo "Build directory contents:"
+          find build -name "*.a" -o -name "*.framework"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: library-ios
+          path: |
+            build/Release-${{ matrix.platform.sdk }}/*.a
+            build/Release/*.a
+          retention-days: 5
+
+  build-android:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        abi: [armeabi-v7a, arm64-v8a, x86, x86_64]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r26b
+          add-to-path: true
+
+      - name: Configure CMake for Android
+        run: |
+          cmake -B build-${{ matrix.abi }} \
+            -DCMAKE_SYSTEM_NAME=Android \
+            -DCMAKE_ANDROID_NDK=$ANDROID_NDK_ROOT \
+            -DCMAKE_ANDROID_ARCH_ABI=${{ matrix.abi }} \
+            -DCMAKE_ANDROID_STL_TYPE=c++_static \
+            -DCMAKE_ANDROID_API=21 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DANDROID=TRUE
+
+      - name: Build
+        run: cmake --build build-${{ matrix.abi }} --config Release
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: library-android-${{ matrix.abi }}
+          path: build-${{ matrix.abi }}/*.a
+          retention-days: 5

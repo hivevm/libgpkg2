@@ -1,8 +1,7 @@
 # Required CMake modules
-set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+set(CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
 
 
-#### SQLite
 add_definitions(-D_HAVE_SQLITE_CONFIG_H=1)
 
 check_include_file(stdint.h HAVE_STDINT_H)
@@ -28,7 +27,6 @@ set(SQLITE_DISABLE_LFS 1)
 set(SQLITE_ENABLE_COLUMN_METADATA 1)
 
 # set(SQLITE_OMIT_LOAD_EXTENSION 1)
-#### SQLite
 
 
 # Common objects for static and shared library
@@ -131,7 +129,6 @@ if(UNIX)
     target_link_libraries(gpkg_shared "${CMAKE_DL_LIBS}")
   endif()
 endif()
-
 
 add_definitions(-DGPKG_HAVE_CONFIG_H)
 configure_file("${PROJECT_SOURCE_DIR}/sqlite/config.h.in" "${CMAKE_CURRENT_BINARY_DIR}/sqlite_cfg.h")

@@ -33,20 +33,19 @@ option(GPKG_TEST "Enable Testing?" OFF)
 option(GPKG_COVERAGE "Enable Code coverage?" OFF)
 option(GPKG_ICU "Enable International Components for Unicode (ICU)?" OFF)
 
-
-add_subdirectory(sqlite)
-add_subdirectory(gpkg)
-if(NOT ANDROID AND NOT IOS) 
-    add_subdirectory(shell)
-endif()  
-
-
+ 
 # International Components for Unicode (ICU)
 if(GPKG_ICU)
   add_compile_definitions(SQLITE_ENABLE_ICU=1)
   add_compile_definitions(SQLITE_ENABLE_ICU_COLLATIONS=1)
   add_subdirectory(icu)
 endif()
+
+add_subdirectory(sqlite)
+add_subdirectory(gpkg)
+if(NOT ANDROID AND NOT IOS) 
+    add_subdirectory(shell)
+endif() 
 
 if(GPKG_TEST)
   include(CTest)

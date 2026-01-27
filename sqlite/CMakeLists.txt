@@ -1,3 +1,6 @@
+# Required CMake modules
+set(CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
+
 
 add_definitions(-D_HAVE_SQLITE_CONFIG_H=1)
 
@@ -14,6 +17,7 @@ check_function_exists(fullfsync HAVE_FULLFSYNC)
 check_function_exists(strerror_r HAVE_STRERROR_R)
 
 
+# set(SQLITE_ENABLE_ICU 1)
 set(SQLITE_ENABLE_RTREE 1)
 
 set(SQLITE_ENABLE_FTS3 1)
@@ -26,15 +30,44 @@ set(SQLITE_ENABLE_COLUMN_METADATA 1)
 # set(SQLITE_OMIT_LOAD_EXTENSION 1)
 
 
+######## ICU SUPPORT (optional) ########
+# include(UseICU)
+# add_subdirectory(icu)
+
+# target_include_directories(sqlite_static PRIVATE
+#     ${ICU_INCLUDE_DIR}
+# )
+
+# target_compile_definitions(sqlite_static PRIVATE
+#     SQLITE_ENABLE_ICU
+# )
+
+# target_link_libraries(sqlite_static PRIVATE
+#     icuuc
+#     icui18n
+#     icudata
+# )
+
+
+
 # Static and shared library version of sqlite3.
-add_library(sqlite_static STATIC sqlite3.c)
-set_target_properties(sqlite_static PROPERTIES OUTPUT_NAME "sqlite3")
-set_target_properties(sqlite_static PROPERTIES LIBRARY_OUTPUT_DIRECTORY static)
+add_library(sqlite_static STATIC
+  sqlite3.c
+)
+set_target_properties(sqlite_static PROPERTIES
+  OUTPUT_NAME "sqlite3"
+  LIBRARY_OUTPUT_DIRECTORY static
+)
+
 
 if(NOT IOS)
-  add_library(sqlite_shared SHARED sqlite3.c)
-  set_target_properties(sqlite_shared PROPERTIES OUTPUT_NAME "sqlite3")
-  set_target_properties(sqlite_shared PROPERTIES LIBRARY_OUTPUT_DIRECTORY shared)
+  add_library(sqlite_shared SHARED
+    sqlite3.c
+  )
+  set_target_properties(sqlite_shared PROPERTIES
+    OUTPUT_NAME "sqlite3"
+    LIBRARY_OUTPUT_DIRECTORY shared
+  )
 endif()
 
 

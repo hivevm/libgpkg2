@@ -1,0 +1,46 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "default",
+      "displayName": "Default",
+      "description": "Plain build of the extension and the gpkg shell (README: Build)",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "GPKG_TEST": "OFF",
+        "CMAKE_BUILD_TYPE": ""
+      }
+    },
+    {
+      "name": "test",
+      "displayName": "Test",
+      "description": "Build with the test suite enabled (README: Test)",
+      "inherits": "default",
+      "cacheVariables": {
+        "GPKG_TEST": "ON"
+      }
+    },
+    {
+      "name": "debug",
+      "displayName": "Debug",
+      "description": "Build with debug symbols, for use with the LLDB launch configuration",
+      "inherits": "default",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "default", "configurePreset": "default" },
+    { "name": "test", "configurePreset": "test" },
+    { "name": "debug", "configurePreset": "debug" }
+  ],
+  "testPresets": [
+    {
+      "name": "test",
+      "configurePreset": "test",
+      "output": { "outputOnFailure": true }
+    }
+  ]
+}

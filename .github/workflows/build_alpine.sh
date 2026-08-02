@@ -15,4 +15,4 @@ cd build
 cmake .. \
     -DGPKG_ICU=0
 
-make -j$(nproc)
+make -j"$(nproc)"

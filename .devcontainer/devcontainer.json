@@ -1,11 +1,23 @@
 // See: https://containers.dev/implementors/json_reference/
 {
 	"name": "DevContainer for LibGPKG",
-	"image": "mcr.microsoft.com/devcontainers/cpp:latest",
-	"postCreateCommand": "sudo apt update -y && sudo apt install -y cmake-curses-gui libboost-tools-dev && sudo rm -rf /var/lib/apt/lists/*",
+	// Pinned by tag + digest (ADR-0007): rebuilds are reproducible and cannot pick up new tool
+	// versions unannounced. To update, bump the tag and refresh the digest from MCR.
+	"image": "mcr.microsoft.com/devcontainers/cpp:3.0.2-debian13@sha256:8698ff31ac6fcf5b40330baf868aa02ef357f8cef59268ff8eaba1302122729e",
+	"postCreateCommand": "sudo apt update -y && sudo apt install -y cmake-curses-gui libboost-tools-dev",
 
 	"workspaceFolder": "/workspace",
 	"workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
+
+	"remoteUser": "vscode",
+	"mounts": [
+		"source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind"
+	],
+
+	// Runs on the host before the container is created. Ensures the bind-mount source for the
+	// agent config exists, so Docker does not auto-create it as a root-owned directory (which
+	// breaks credential writes inside the container).
+	"initializeCommand": "mkdir -p ${localEnv:HOME}/.claude",
 
 	"customizations": {
 		// Configure properties specific to VS Code.
@@ -13,16 +25,22 @@
 			"settings": {},
 			// Add the IDs of extensions you want installed when the container is created.
 			"extensions": [
+				"anthropic.claude-code",
 				"vadimcn.vscode-lldb",
-				"ms-vscode.cmake-tools",
+				// cpptools-extension-pack already includes ms-vscode.cmake-tools
 				"ms-vscode.cpptools-extension-pack",
 				"streetsidesoftware.code-spell-checker"
 			]
 		}
 	},
+	// The container intentionally has NO access to the host Docker daemon (no socket mount) —
+	// see ADR-0002. Manage the host's containers from a host-side VS Code extension instead
+	// (README → "Dev Container").
 	"features": {
 		"ghcr.io/devcontainers/features/git:1": {},
-		"ghcr.io/devcontainers-extra/features/cmake:1": {}
+		// GitHub CLI (`gh`) — used by the coding agent for GitHub operations and as the git
+		// credential helper. Git writes still require explicit human approval (see AGENTS.md).
+		"ghcr.io/devcontainers/features/github-cli:1": {}
 	}
 	// Uncomment to connect as root instead. More info: https://aka.ms/dev-containers-non-root.
 	// "remoteUser": "root"

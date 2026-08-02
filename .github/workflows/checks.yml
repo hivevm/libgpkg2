@@ -1,0 +1,62 @@
+name: Checks
+
+# Enforces the repository's rules as CI. Pure bash + coreutils — nothing is installed
+# (ShellCheck, used by the shell job, ships preinstalled on the GitHub-hosted runner image).
+# - Documentation (AGENTS.md, docs/adr/README.md): ADR index integrity (every ADR listed,
+#   statuses in sync), ADR numbering integrity (gapless 0001..N, headings match filenames),
+#   relative-link integrity, section-reference integrity (§N references match AGENTS.md's
+#   numbered headings), and ADR-reference integrity (every ADR-NNNN reference names an
+#   existing ADR file).
+# - Shell lint: every shell script passes ShellCheck — the scripts are the template's
+#   enforcement layer, so they are linted themselves.
+# - Git conventions (AGENTS.md §6, ADR-0003): branch naming, Conventional Commit subjects in the
+#   PR range, and a Conventional-Commit-valid PR title (squash merge makes it the permanent
+#   subject on main).
+# - Supply-chain pinning (AGENTS.md §7, ADR-0004): every action pinned to a full commit SHA.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check documentation consistency
+        run: bash scripts/check-docs.sh
+
+  shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Lint shell scripts with ShellCheck
+        run: bash scripts/check-shell.sh
+
+  pins:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check that all actions are SHA-pinned
+        run: bash scripts/check-workflow-pins.sh
+
+  git-conventions:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      # Branch name, SHAs, and PR title are attacker-controlled strings — pass them via env,
+      # never inline in `run:` (script-injection hardening per GitHub's security guide).
+      - name: Check branch name, commit subjects, and PR title
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: bash scripts/check-git-conventions.sh "$HEAD_REF" "$BASE_SHA..$HEAD_SHA" "$PR_TITLE"

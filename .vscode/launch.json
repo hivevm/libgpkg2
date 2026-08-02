@@ -1,0 +1,15 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      // Requires a build with debug symbols: configure & build the "debug" preset first
+      // (CMake Tools: select preset "Debug", or `cmake --preset debug && cmake --build --preset debug`).
+      "name": "Debug gpkg shell (LLDB)",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/shell/geopackage",
+      "args": [],
+      "cwd": "${workspaceFolder}"
+    }
+  ]
+}

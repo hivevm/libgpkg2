@@ -1,0 +1,10 @@
+{
+  // Host-side recommendations: the Dev Container itself installs its extensions via
+  // .devcontainer/devcontainer.json. These two run on the host (see README → "Dev Container"):
+  // Dev Containers to open the folder in the container, Container Tools to manage the host's
+  // container engine without mounting the Docker socket (ADR-0002).
+  "recommendations": [
+    "ms-vscode-remote.remote-containers",
+    "ms-azuretools.vscode-containers"
+  ]
+}

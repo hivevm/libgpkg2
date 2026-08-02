@@ -1,0 +1,40 @@
+{
+  // Enable GitHub Copilot to read AGENTS.md as agent instructions.
+  "chat.useAgentsMdFile": true,
+  "files.eol": "\n",
+  "editor.formatOnSave": true,
+
+  // Project vocabulary for the Code Spell Checker extension (case-insensitive).
+  "cSpell.words": [
+    "binstream",
+    "blobio",
+    "ctest",
+    "devcontainer",
+    "devcontainers",
+    "geomio",
+    "geopackage",
+    "hivevm",
+    "jamroot",
+    "libboost",
+    "libgpkg",
+    "libversion",
+    "linestring",
+    "luciad",
+    "multilinestring",
+    "multipoint",
+    "multipolygon",
+    "rtree",
+    "spatialdb",
+    "sqlite",
+    "srid",
+    "strbuf"
+  ],
+
+  // Manage the *host's* containers from VS Code without mounting the Docker socket into the Dev
+  // Container (see ADR-0002): keep the container-management extension on the host (UI) side even
+  // when this folder is reopened in the container. Install "Container Tools" in your host VS Code.
+  "remote.extensionKind": {
+    "ms-azuretools.vscode-containers": ["ui"],
+    "ms-azuretools.vscode-docker": ["ui"]
+  }
+}

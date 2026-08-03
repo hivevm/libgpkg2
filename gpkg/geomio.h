@@ -319,6 +319,9 @@ void geom_envelope_init(geom_envelope_t *envelope);
 void geom_envelope_accumulate(geom_envelope_t *envelope, const geom_header_t *header);
 
 /**
+ * Resolves the initialization sentinels after all coordinates have been accumulated: an ordinate
+ * that never saw a finite value is marked absent (its has_env flag cleared, its bounds set to
+ * NaN). If that applies to x or y the geometry is empty and the whole envelope is dropped.
  *
  * @return EMPTY_GEOM (1) if bounds indicate empty, 0 if not empty
  */

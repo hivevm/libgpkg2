@@ -27,6 +27,31 @@ typedef struct {
   int srid;
 } boostgeom_geometry_t;
 
+/* SQLite invokes these callbacks across a C boundary, where an escaping C++ exception is undefined
+   behaviour and would take the host process down rather than fail the statement. Boost.Geometry
+   raises exceptions for invalid input, and any allocation can raise std::bad_alloc, so every entry
+   point is registered through one of these guards and reports the failure as a SQL error instead. */
+template <void (*Fn)(sqlite3_context *, int, sqlite3_value **)>
+static void boostgeom_guarded(sqlite3_context *context, int nbArgs, sqlite3_value **args) {
+  try {
+    Fn(context, nbArgs, args);
+  } catch (const std::exception &e) {
+    sqlite3_result_error(context, e.what(), -1);
+  } catch (...) {
+    sqlite3_result_error(context, "unhandled error in geometry function", -1);
+  }
+}
+
+template <void (*Fn)(sqlite3_context *)> static void boostgeom_guarded_final(sqlite3_context *context) {
+  try {
+    Fn(context);
+  } catch (const std::exception &e) {
+    sqlite3_result_error(context, e.what(), -1);
+  } catch (...) {
+    sqlite3_result_error(context, "unhandled error in geometry function", -1);
+  }
+}
+
 static boostgeom_geometry_t *get_boost_geom(sqlite3_context *context, const spatialdb_t *spatialdb,
                                             sqlite3_value *value, errorstream_t *error) {
   geom_blob_header_t header;
@@ -41,15 +66,28 @@ static boostgeom_geometry_t *get_boost_geom(sqlite3_context *context, const spat
   binstream_t stream;
   binstream_init(&stream, blob, blob_length);
 
-  spatialdb->read_blob_header(&stream, &header, error);
+  /* A malformed blob used to be processed anyway: the failed header read left header.srid as
+     uninitialized stack data and the functions computed results over whatever the geometry read
+     produced, instead of reporting the error the reader had already recorded. */
+  if (spatialdb->read_blob_header(&stream, &header, error) != SQLITE_OK) {
+    if (error_count(error) == 0) {
+      error_append(error, "Invalid geometry blob header");
+    }
+    return NULL;
+  }
 
   boostgeom_writer_t writer;
   boostgeom_writer_init_srid(&writer, header.srid);
 
-  spatialdb->read_geometry(&stream, boostgeom_writer_geom_consumer(&writer), error);
+  if (spatialdb->read_geometry(&stream, boostgeom_writer_geom_consumer(&writer), error) != SQLITE_OK) {
+    if (error_count(error) == 0) {
+      error_append(error, "Invalid geometry blob");
+    }
+    boostgeom_writer_destroy(&writer, true);
+    return NULL;
+  }
 
   gpkg::GeometryPtr g = boostgeom_writer_getgeometry(&writer);
-  boostgeom_writer_destroy(&writer, g.which() == 0);
 
   if (g.which() == 0) {
     boostgeom_writer_destroy(&writer, true);
@@ -89,12 +127,14 @@ static int set_boost_geom_result(sqlite3_context *context, const spatialdb_t *sp
     result = boostgeom_read_geometry(geom->geometry, geom_blob_writer_geom_consumer(&writer), error);
 
     if (result == SQLITE_OK) {
+      /* SQLite takes the buffer and frees it, so the writer must not. */
       sqlite3_result_blob(context, geom_blob_writer_getdata(&writer), geom_blob_writer_length(&writer), sqlite3_free);
+      spatialdb->writer_destroy(&writer, 0);
     } else {
       sqlite3_result_error(context, error_message(error), -1);
+      /* Nobody took the buffer on this path; it used to be leaked. */
+      spatialdb->writer_destroy(&writer, 1);
     }
-
-    spatialdb->writer_destroy(&writer, 0);
 
     return result;
   }
@@ -112,10 +152,15 @@ static int set_boost_geom_result(sqlite3_context *context, const spatialdb_t *sp
     return;                                                                                                            \
   }                                                                                                                    \
   boostgeom_geometry_t *name = (boostgeom_geometry_t *)sqlite3_get_auxdata(context, i);                                \
-  int name##_set_auxdata = 0;                                                                                          \
   if (name == NULL) {                                                                                                  \
     name = get_boost_geom(context, spatialdb, args[i], &error);                                                        \
-    name##_set_auxdata = 1;                                                                                            \
+    if (name != NULL) {                                                                                                \
+      /* Hand ownership to SQLite at once: registering only after the last argument leaked */                          \
+      /* everything acquired so far when a later argument failed to parse and returned early, */                       \
+      /* and set_auxdata destroys the value if it cannot store it, so re-read it afterwards. */                        \
+      sqlite3_set_auxdata(context, i, (void *)name, free_boost_geom);                                                  \
+      name = (boostgeom_geometry_t *)sqlite3_get_auxdata(context, i);                                                  \
+    }                                                                                                                  \
   }                                                                                                                    \
   if (name == NULL) {                                                                                                  \
     if (error_count(&error) > 0) {                                                                                     \
@@ -125,10 +170,10 @@ static int set_boost_geom_result(sqlite3_context *context, const spatialdb_t *sp
     }                                                                                                                  \
     return;                                                                                                            \
   }
+/* Ownership passes to SQLite in BOOSTGEOM_GET_GEOM; nothing is left to release here. */
 #define BOOSTGEOM_FREE_GEOM(name, i)                                                                                   \
-  if (name != NULL && name##_set_auxdata) {                                                                            \
-    sqlite3_set_auxdata(context, i, (void *)name, free_boost_geom);                                                    \
-  }
+  do {                                                                                                                 \
+  } while (0)
 
 #define BOOSTGEOM_GEOM__INT(sql_name, boost_name)                                                                      \
   static void ST_##sql_name(sqlite3_context *context, int nbArgs, sqlite3_value **args) {                              \
@@ -366,45 +411,66 @@ static void aggregate_geom_step(sqlite3_context *context, int argc, sqlite3_valu
   chain->last = item;
 }
 
+static void free_geom_chain(struct geom_chain *chain) {
+  struct chain_item *item = chain->first;
+  while (item) {
+    struct chain_item *next = item->next;
+    free_boost_geom(item->geom);
+    free(item);
+    item = next;
+  }
+  free(chain);
+}
+
 static void aggregate_geom_Union_final(sqlite3_context *context) {
   boostgeom_geometry_t res;
+  res.geometry = ::boost::blank();
+  res.srid = 0;
   struct geom_chain **p = (geom_chain **)sqlite3_aggregate_context(context, 0);
 
-  if (!p) {
+  if (!p || !*p) {
     sqlite3_result_null(context);
     return;
   }
 
   struct geom_chain *chain = *p;
 
-  struct chain_item *item = chain->first;
-
-  while (item) {
-    if (item == chain->first) {
-      // copy the geometry value so we can free(item->geom)
-      res.geometry = gpkg::clone(item->geom->geometry);
-      res.srid = item->geom->srid;
-    } else {
-      gpkg::GeometryPtr tmp = gpkg::union_(res.geometry, item->geom->geometry);
-      gpkg::delete_geometry(res.geometry);
-      res.geometry = tmp;
-      res.srid = (item->geom->srid == res.srid) ? res.srid : 0;
+  /* SQLite calls this finalizer exactly once, so everything the walk has accumulated must be
+     released even when Boost.Geometry throws; the guard then reports the exception as a SQL
+     error. The old code freed items as it went and leaked the whole tail on a throw. */
+  try {
+    bool first = true;
+    for (struct chain_item *item = chain->first; item != NULL; item = item->next) {
+      if (first) {
+        // copy the geometry value so free_geom_chain can free item->geom
+        res.geometry = gpkg::clone(item->geom->geometry);
+        res.srid = item->geom->srid;
+        first = false;
+      } else {
+        gpkg::GeometryPtr tmp = gpkg::union_(res.geometry, item->geom->geometry);
+        gpkg::delete_geometry(res.geometry);
+        res.geometry = tmp;
+        res.srid = (item->geom->srid == res.srid) ? res.srid : 0;
+      }
     }
-
-    free_boost_geom(item->geom);
-    item->geom = NULL;
-    struct chain_item *next = item->next;
-    free(item);
-    item = next;
+  } catch (...) {
+    free_geom_chain(chain);
+    gpkg::delete_geometry(res.geometry);
+    throw;
   }
 
-  free(chain);
+  free_geom_chain(chain);
 
-  if (gpkg::is_empty(res.geometry)) {
-    sqlite3_result_null(context);
-  } else {
-    BOOSTGEOM_START(context);
-    set_boost_geom_result(context, spatialdb, &res, &error);
+  try {
+    if (gpkg::is_empty(res.geometry)) {
+      sqlite3_result_null(context);
+    } else {
+      BOOSTGEOM_START(context);
+      set_boost_geom_result(context, spatialdb, &res, &error);
+    }
+  } catch (...) {
+    gpkg::delete_geometry(res.geometry);
+    throw;
   }
 
   gpkg::delete_geometry(res.geometry);
@@ -427,8 +493,12 @@ static void extent_step(sqlite3_context *context, int argc, sqlite3_value **argv
   BOOSTGEOM_START(context);
   boostgeom_geometry_t *g1 = (boostgeom_geometry_t *)sqlite3_get_auxdata(context, 0);
 
+  /* Auxdata is not a useful cache across the steps of an aggregate, so a geometry parsed here is
+     owned by this step and must be released before it returns. */
+  int g1_owned = 0;
   if (g1 == NULL) {
     g1 = get_boost_geom(context, spatialdb, argv[0], &error);
+    g1_owned = 1;
   }
 
   if (g1 == NULL) {
@@ -487,9 +557,16 @@ static void extent_step(sqlite3_context *context, int argc, sqlite3_value **argv
 
     srid_check = (int *)(max_min + 4);
 
-    if (*(srid_check + 1) != g1->srid) {
+    /* Latch a mismatch instead of recording the current row's SRID: overwriting the slot every
+       row only caught a difference when the very last row disagreed with the first, so a run of
+       4326, 3857, 4326 was accepted and mixed coordinate systems into one box. */
+    if (*(srid_check + 0) != g1->srid) {
       *(srid_check + 1) = g1->srid;
     }
+  }
+
+  if (g1_owned) {
+    free_boost_geom(g1);
   }
 }
 
@@ -511,40 +588,37 @@ static void extent_final(sqlite3_context *context) {
   int *srid_check = (int *)(max_min + 4);
 
   if (*(srid_check + 0) != *(srid_check + 1)) {
+    /* The accumulator belongs to this call whichever way it ends; returning here used to leak it. */
+    free(max_min);
     sqlite3_result_null(context);
     return;
   }
 
-  // Result envelop
-  double &minx = *(max_min + 0);
-  double &miny = *(max_min + 1);
-  double &maxx = *(max_min + 2);
-  double &maxy = *(max_min + 3);
-
-  boostgeom_geometry_t res;
-  //    res.geometry = new gpkg::Polygon({{
-  //            gpkg::Point(minx, miny),
-  //            gpkg::Point(minx, maxy),
-  //            gpkg::Point(maxx, maxy),
-  //            gpkg::Point(maxx, miny),
-  //            gpkg::Point(minx, miny)
-  //        }});
-  res.geometry = new gpkg::Polygon({{gpkg::Point(minx, miny), gpkg::Point(maxx, miny), gpkg::Point(maxx, maxy),
-                                     gpkg::Point(minx, maxy), gpkg::Point(minx, miny)}});
-  //    res.geometry = new gpkg::Envelope({
-  //        gpkg::Point(minx, miny),
-  //        gpkg::Point(maxx, maxy)
-  //    });
-
-  res.srid = *(srid_check + 0);
+  /* Copy the accumulator and release it before anything that can throw; allocating the result
+     polygon first used to leak it when the allocation failed. */
+  double minx = *(max_min + 0);
+  double miny = *(max_min + 1);
+  double maxx = *(max_min + 2);
+  double maxy = *(max_min + 3);
+  int srid = *(srid_check + 0);
 
   free(max_min);
 
-  if (gpkg::is_empty(res.geometry)) {
-    sqlite3_result_null(context);
-  } else {
-    BOOSTGEOM_START(context);
-    set_boost_geom_result(context, spatialdb, &res, &error);
+  boostgeom_geometry_t res;
+  res.geometry = new gpkg::Polygon({{gpkg::Point(minx, miny), gpkg::Point(maxx, miny), gpkg::Point(maxx, maxy),
+                                     gpkg::Point(minx, maxy), gpkg::Point(minx, miny)}});
+  res.srid = srid;
+
+  try {
+    if (gpkg::is_empty(res.geometry)) {
+      sqlite3_result_null(context);
+    } else {
+      BOOSTGEOM_START(context);
+      set_boost_geom_result(context, spatialdb, &res, &error);
+    }
+  } catch (...) {
+    gpkg::delete_geometry(res.geometry);
+    throw;
   }
 
   gpkg::delete_geometry(res.geometry);
@@ -558,24 +632,20 @@ static void extent_coord_step(sqlite3_context *context, int argc, sqlite3_value 
     return;
   }
 
-  double *xy[4];
+  /* Read the coordinates through the API. The previous code cast sqlite3_value* straight to
+     double* and dereferenced it, which yielded the right number only because the double happens
+     to sit first in SQLite's internal value struct, and it consulted auxdata, which carries no
+     meaning in an aggregate step. Integer arguments were rejected outright. */
+  double xy[4];
 
   for (int i = 0; i < 4; ++i) {
-    if (sqlite3_value_type(argv[i]) != SQLITE_FLOAT) {
+    int type = sqlite3_value_type(argv[i]);
+    if (type != SQLITE_FLOAT && type != SQLITE_INTEGER) {
       sqlite3_result_null(context);
       return;
     }
 
-    xy[i] = (double *)sqlite3_get_auxdata(context, i);
-
-    if (xy[i] == NULL) {
-      xy[i] = (double *)(argv[i]);
-    }
-
-    if (xy[i] == NULL) {
-      sqlite3_result_null(context);
-      return;
-    }
+    xy[i] = sqlite3_value_double(argv[i]);
   }
 
   // Extent
@@ -583,10 +653,10 @@ static void extent_coord_step(sqlite3_context *context, int argc, sqlite3_value 
 
   double **p = (double **)sqlite3_aggregate_context(context, sizeof(double **));
 
-  double &minx = *xy[0];
-  double &miny = *xy[1];
-  double &maxx = *xy[2];
-  double &maxy = *xy[3];
+  double minx = xy[0];
+  double miny = xy[1];
+  double maxx = xy[2];
+  double maxy = xy[3];
 
   if (!(*p)) {
     // this is the first row
@@ -633,24 +703,30 @@ static void extent_coord_final(sqlite3_context *context) {
     return;
   }
 
-  // Result envelop
-  double &minx = *(max_min + 0);
-  double &miny = *(max_min + 1);
-  double &maxx = *(max_min + 2);
-  double &maxy = *(max_min + 3);
+  /* Copy the accumulator and release it before anything that can throw; allocating the result
+     polygon first used to leak it when the allocation failed. */
+  double minx = *(max_min + 0);
+  double miny = *(max_min + 1);
+  double maxx = *(max_min + 2);
+  double maxy = *(max_min + 3);
+
+  free(max_min);
 
   boostgeom_geometry_t res;
   res.geometry = new gpkg::Polygon({{gpkg::Point(minx, miny), gpkg::Point(maxx, miny), gpkg::Point(maxx, maxy),
                                      gpkg::Point(minx, maxy), gpkg::Point(minx, miny)}});
   res.srid = 0;
 
-  free(max_min);
-
-  if (gpkg::is_empty(res.geometry)) {
-    sqlite3_result_null(context);
-  } else {
-    BOOSTGEOM_START(context);
-    set_boost_geom_result(context, spatialdb, &res, &error);
+  try {
+    if (gpkg::is_empty(res.geometry)) {
+      sqlite3_result_null(context);
+    } else {
+      BOOSTGEOM_START(context);
+      set_boost_geom_result(context, spatialdb, &res, &error);
+    }
+  } catch (...) {
+    gpkg::delete_geometry(res.geometry);
+    throw;
   }
 
   gpkg::delete_geometry(res.geometry);
@@ -660,8 +736,8 @@ static void extent_coord_final(sqlite3_context *context) {
 
 #define BOOSTGEOM_FUNCTION(db, prefix, name, nbArgs, ctx, error)                                                       \
   do {                                                                                                                 \
-    sql_create_function(db, STR(prefix##_##name), prefix##_##name, nbArgs, SQL_DETERMINISTIC, (void *)ctx, NULL,       \
-                        error);                                                                                        \
+    sql_create_function(db, STR(prefix##_##name), boostgeom_guarded<prefix##_##name>, nbArgs, SQL_DETERMINISTIC,       \
+                        (void *)ctx, NULL, error);                                                                     \
   } while (0)
 
 extern "C" {
@@ -681,7 +757,8 @@ void geom_func_init(sqlite3 *db, const spatialdb_t *spatialdb, errorstream_t *er
 
   BOOSTGEOM_FUNCTION(db, ST, Union, 2, spatialdb, error);
   sqlite3_create_function_v2(db, "ST_Union", 1, SQLITE_UTF8 | SQLITE_DETERMINISTIC, (void *)spatialdb, 0,
-                             aggregate_geom_step, aggregate_geom_Union_final, 0);
+                             boostgeom_guarded<aggregate_geom_step>,
+                             boostgeom_guarded_final<aggregate_geom_Union_final>, 0);
 
   BOOSTGEOM_FUNCTION(db, ST, Scale, 2, spatialdb, error);
   BOOSTGEOM_FUNCTION(db, ST, Translate, 3, spatialdb, error);
@@ -692,10 +769,10 @@ void geom_func_init(sqlite3 *db, const spatialdb_t *spatialdb, errorstream_t *er
   //
   BOOSTGEOM_FUNCTION(db, ST, Intersects2, 2, spatialdb, error);
   BOOSTGEOM_FUNCTION(db, ST, Envelop, 1, spatialdb, error);
-  sqlite3_create_function_v2(db, "ST_Extent", 1, SQLITE_UTF8 | SQLITE_DETERMINISTIC, (void *)spatialdb, 0, extent_step,
-                             extent_final, 0);
+  sqlite3_create_function_v2(db, "ST_Extent", 1, SQLITE_UTF8 | SQLITE_DETERMINISTIC, (void *)spatialdb, 0,
+                             boostgeom_guarded<extent_step>, boostgeom_guarded_final<extent_final>, 0);
   sqlite3_create_function_v2(db, "ST_Extent", 4, SQLITE_UTF8 | SQLITE_DETERMINISTIC, (void *)spatialdb, 0,
-                             extent_coord_step, extent_coord_final, 0);
+                             boostgeom_guarded<extent_coord_step>, boostgeom_guarded_final<extent_coord_final>, 0);
   //
 }
 }

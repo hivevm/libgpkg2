@@ -216,7 +216,9 @@ int sql_begin(sqlite3 *db, char *name);
 int sql_commit(sqlite3 *db, char *name);
 
 /**
- * Rolls back a named SQLite transaction. See the documentation on SQLite savepoints for more details.
+ * Rolls back a named SQLite transaction and ends it. The savepoint is released as well as rolled
+ * back, so the connection returns to autocommit once the outermost transaction is undone. See the
+ * documentation on SQLite savepoints for more details.
  * @param db the SQLite database context
  * @param name the name of the transaction
  * @return SQLITE_OK if the transaction was successfully rolled back\n

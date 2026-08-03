@@ -222,8 +222,13 @@ int boostgeom_writer_init_srid(boostgeom_writer_t *writer, int srid) {
   geom_consumer_init(&writer->geom_consumer, NULL, NULL, boostgeom_begin_geometry, boostgeom_end_geometry,
                      boostgeom_coordinates);
   writer->geometry = ::boost::blank();
-  memset(writer->geometry_stack, 0, GEOM_MAX_DEPTH * sizeof(Geometry *));
+  /* The stack entries are boost::variant objects; the memset this replaces overwrote their
+     discriminators (undefined behaviour) and, sized as Geometry*, only covered half the array. */
+  for (int i = 0; i < GEOM_MAX_DEPTH; i++) {
+    writer->geometry_stack[i] = ::boost::blank();
+  }
 
+  writer->srid = srid;
   writer->offset = -1;
 
   return SQLITE_OK;
@@ -237,6 +242,16 @@ void boostgeom_writer_destroy(boostgeom_writer_t *writer, int free_data) {
   if (free_data) {
     gpkg::delete_geometry(writer->geometry);
     writer->geometry = boost::blank();
+
+    /* An aborted parse never reaches end_geometry for the outermost geometry, so writer->geometry
+       was never assigned and the object allocated in begin_geometry is only reachable through the
+       stack. After a complete parse offset is back to -1 and both refer to the same object, which
+       is why this must not run there. */
+    if (writer->offset >= 0) {
+      gpkg::delete_geometry(writer->geometry_stack[0]);
+      writer->geometry_stack[0] = boost::blank();
+      writer->offset = -1;
+    }
   }
 }
 

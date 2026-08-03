@@ -61,6 +61,12 @@ int wkb_fill_envelope(binstream_t *stream, wkb_dialect dialect, geom_envelope_t 
   geom_consumer_init(&fill_gpb.consumer, NULL, NULL, NULL, NULL, fill_envelope_coordinates);
   int result = wkb_read_geometry(stream, dialect, &fill_gpb.consumer, error);
 
+  if (result == SQLITE_OK) {
+    /* An empty geometry or an all-NaN ordinate leaves the initialization sentinels in place;
+       without this the caller received DBL_MAX/-DBL_MAX as the geometry's bounds. */
+    geom_envelope_finalize(envelope);
+  }
+
   return result;
 }
 
@@ -227,7 +233,7 @@ static int read_wkb_geometry_header(binstream_t *stream, wkb_dialect dialect, ge
 }
 
 static int read_point(binstream_t *stream, wkb_dialect dialect, const geom_consumer_t *consumer,
-                      const geom_header_t *header, errorstream_t *error) {
+                      const geom_header_t *header, errorstream_t *error, int depth) {
   int result;
   uint32_t coord_size = header->coord_size;
   double coord[GEOM_MAX_COORD_SIZE];
@@ -256,18 +262,21 @@ static int read_points(binstream_t *stream, wkb_dialect dialect, const geom_cons
                        const geom_header_t *header, uint32_t point_count, errorstream_t *error) {
   int result;
   double coord[GEOM_MAX_COORD_SIZE * COORD_BATCH_SIZE];
-  int max_coords_to_read = COORD_BATCH_SIZE;
+  uint32_t max_points_per_batch = COORD_BATCH_SIZE;
 
   if (header->geom_type == GEOM_CIRCULARSTRING) {
-    max_coords_to_read = COORD_BATCH_SIZE - ((COORD_BATCH_SIZE - 3) % 2);
+    max_points_per_batch = COORD_BATCH_SIZE - ((COORD_BATCH_SIZE - 3) % 2);
   }
 
   uint32_t remaining = point_count;
   uint32_t offset = 0;
-  uint32_t points_read = 0;
   uint32_t extra_coords = 0;
   while (remaining > 0) {
-    uint32_t points_to_read = (remaining > max_coords_to_read ? max_coords_to_read : remaining);
+    /* A carried point occupies a buffer slot and is counted in what the consumer is handed, so once
+       one is present read a point fewer. That keeps every batch an odd number of points, i.e. whole
+       arcs for a circular string, and leaves its final point available to carry into the next one. */
+    uint32_t batch_capacity = max_points_per_batch - extra_coords;
+    uint32_t points_to_read = (remaining > batch_capacity ? batch_capacity : remaining);
     uint32_t coords_to_read = points_to_read * header->coord_size;
     for (uint32_t i = 0; i < coords_to_read; i++) {
       result = binstream_read_double(stream, &coord[i + offset]);
@@ -285,8 +294,11 @@ static int read_points(binstream_t *stream, wkb_dialect dialect, const geom_cons
     }
 
     if (header->geom_type == GEOM_CIRCULARSTRING) {
+      /* Carry the last point in the buffer, which sits behind the point carried into this batch;
+         omitting that made every batch after the first drop a point and break the arc chain. */
+      uint32_t last = (extra_coords + points_to_read - 1) * header->coord_size;
       for (uint32_t i = 0; i < header->coord_size; i++) {
-        coord[i] = coord[((points_to_read - 1) * header->coord_size) + i];
+        coord[i] = coord[last + i];
       }
       offset = header->coord_size;
       extra_coords = 1;
@@ -332,7 +344,7 @@ exit:
 }
 
 static int read_linestring(binstream_t *stream, wkb_dialect dialect, const geom_consumer_t *consumer,
-                           const geom_header_t *header, errorstream_t *error) {
+                           const geom_header_t *header, errorstream_t *error, int depth) {
   uint32_t point_count;
   if (binstream_read_u32(stream, &point_count) != SQLITE_OK) {
     if (error) {
@@ -345,7 +357,7 @@ static int read_linestring(binstream_t *stream, wkb_dialect dialect, const geom_
 }
 
 static int read_polygon(binstream_t *stream, wkb_dialect dialect, const geom_consumer_t *consumer,
-                        const geom_header_t *header, errorstream_t *error) {
+                        const geom_header_t *header, errorstream_t *error, int depth) {
   uint32_t ring_count;
   if (binstream_read_u32(stream, &ring_count) != SQLITE_OK) {
     if (error) {
@@ -363,10 +375,10 @@ static int read_polygon(binstream_t *stream, wkb_dialect dialect, const geom_con
 }
 
 static int read_geometry(binstream_t *stream, wkb_dialect dialect, geom_consumer_t const *consumer,
-                         geom_header_t *header, errorstream_t *error);
+                         geom_header_t *header, errorstream_t *error, int depth);
 
 static int read_multipoint(binstream_t *stream, wkb_dialect dialect, const geom_consumer_t *consumer,
-                           const geom_header_t *header, errorstream_t *error) {
+                           const geom_header_t *header, errorstream_t *error, int depth) {
   uint32_t point_count;
   if (binstream_read_u32(stream, &point_count) != SQLITE_OK) {
     if (error) {
@@ -385,7 +397,7 @@ static int read_multipoint(binstream_t *stream, wkb_dialect dialect, const geom_
       return SQLITE_IOERR;
     }
 
-    if (read_geometry(stream, dialect, consumer, &point_header, error) != SQLITE_OK) {
+    if (read_geometry(stream, dialect, consumer, &point_header, error, depth + 1) != SQLITE_OK) {
       return SQLITE_IOERR;
     }
   }
@@ -393,7 +405,7 @@ static int read_multipoint(binstream_t *stream, wkb_dialect dialect, const geom_
 }
 
 static int read_multilinestring(binstream_t *stream, wkb_dialect dialect, const geom_consumer_t *consumer,
-                                const geom_header_t *header, errorstream_t *error) {
+                                const geom_header_t *header, errorstream_t *error, int depth) {
   uint32_t linestring_count;
   if (binstream_read_u32(stream, &linestring_count) != SQLITE_OK) {
     if (error) {
@@ -412,7 +424,7 @@ static int read_multilinestring(binstream_t *stream, wkb_dialect dialect, const 
       return SQLITE_IOERR;
     }
 
-    if (read_geometry(stream, dialect, consumer, &linestring_header, error) != SQLITE_OK) {
+    if (read_geometry(stream, dialect, consumer, &linestring_header, error, depth + 1) != SQLITE_OK) {
       return SQLITE_IOERR;
     }
   }
@@ -420,7 +432,7 @@ static int read_multilinestring(binstream_t *stream, wkb_dialect dialect, const 
 }
 
 static int read_multipolygon(binstream_t *stream, wkb_dialect dialect, const geom_consumer_t *consumer,
-                             const geom_header_t *header, errorstream_t *error) {
+                             const geom_header_t *header, errorstream_t *error, int depth) {
   uint32_t polygon_count;
   if (binstream_read_u32(stream, &polygon_count) != SQLITE_OK) {
     if (error) {
@@ -439,7 +451,7 @@ static int read_multipolygon(binstream_t *stream, wkb_dialect dialect, const geo
       return SQLITE_IOERR;
     }
 
-    if (read_geometry(stream, dialect, consumer, &polygon_header, error) != SQLITE_OK) {
+    if (read_geometry(stream, dialect, consumer, &polygon_header, error, depth + 1) != SQLITE_OK) {
       return SQLITE_IOERR;
     }
   }
@@ -447,7 +459,7 @@ static int read_multipolygon(binstream_t *stream, wkb_dialect dialect, const geo
 }
 
 static int read_geometrycollection(binstream_t *stream, wkb_dialect dialect, const geom_consumer_t *consumer,
-                                   const geom_header_t *header, errorstream_t *error) {
+                                   const geom_header_t *header, errorstream_t *error, int depth) {
   uint32_t geometry_count;
   if (binstream_read_u32(stream, &geometry_count) != SQLITE_OK) {
     if (error) {
@@ -466,7 +478,7 @@ static int read_geometrycollection(binstream_t *stream, wkb_dialect dialect, con
       return SQLITE_IOERR;
     }
 
-    if (read_geometry(stream, dialect, consumer, &geometry_header, error) != SQLITE_OK) {
+    if (read_geometry(stream, dialect, consumer, &geometry_header, error, depth + 1) != SQLITE_OK) {
       return SQLITE_IOERR;
     }
   }
@@ -474,7 +486,7 @@ static int read_geometrycollection(binstream_t *stream, wkb_dialect dialect, con
 }
 
 static int read_circularstring(binstream_t *stream, wkb_dialect dialect, const geom_consumer_t *consumer,
-                               const geom_header_t *header, errorstream_t *error) {
+                               const geom_header_t *header, errorstream_t *error, int depth) {
   uint32_t point_count;
 
   if (binstream_read_u32(stream, &point_count) != SQLITE_OK) {
@@ -484,7 +496,9 @@ static int read_circularstring(binstream_t *stream, wkb_dialect dialect, const g
     return SQLITE_IOERR;
   }
 
-  if ((point_count - 3) % 2 != 0 && point_count != 0) {
+  /* point_count is unsigned: testing (point_count - 3) directly wraps around for 1 and 2,
+     letting a 1-point arc through and underflowing the arc loops downstream. */
+  if (point_count != 0 && (point_count < 3 || (point_count - 3) % 2 != 0)) {
     if (error) {
       error_append(error, "Error CircularString requires 3+2n points or has to be EMPTY");
     }
@@ -495,7 +509,7 @@ static int read_circularstring(binstream_t *stream, wkb_dialect dialect, const g
 }
 
 static int read_compoundcurve(binstream_t *stream, wkb_dialect dialect, const geom_consumer_t *consumer,
-                              const geom_header_t *header, errorstream_t *error) {
+                              const geom_header_t *header, errorstream_t *error, int depth) {
   uint32_t curve_count;
   if (binstream_read_u32(stream, &curve_count) != SQLITE_OK) {
     if (error) {
@@ -516,7 +530,7 @@ static int read_compoundcurve(binstream_t *stream, wkb_dialect dialect, const ge
       return SQLITE_IOERR;
     }
 
-    if (read_geometry(stream, dialect, consumer, &curve_header, error) != SQLITE_OK) {
+    if (read_geometry(stream, dialect, consumer, &curve_header, error, depth + 1) != SQLITE_OK) {
       return SQLITE_IOERR;
     }
   }
@@ -524,7 +538,7 @@ static int read_compoundcurve(binstream_t *stream, wkb_dialect dialect, const ge
 }
 
 static int read_curvepolygon(binstream_t *stream, wkb_dialect dialect, const geom_consumer_t *consumer,
-                             const geom_header_t *header, errorstream_t *error) {
+                             const geom_header_t *header, errorstream_t *error, int depth) {
   uint32_t curve_count;
   if (binstream_read_u32(stream, &curve_count) != SQLITE_OK) {
     if (error) {
@@ -545,7 +559,7 @@ static int read_curvepolygon(binstream_t *stream, wkb_dialect dialect, const geo
       return SQLITE_IOERR;
     }
 
-    if (read_geometry(stream, dialect, consumer, &curve_header, error) != SQLITE_OK) {
+    if (read_geometry(stream, dialect, consumer, &curve_header, error, depth + 1) != SQLITE_OK) {
       return SQLITE_IOERR;
     }
   }
@@ -553,10 +567,19 @@ static int read_curvepolygon(binstream_t *stream, wkb_dialect dialect, const geo
 }
 
 static int read_geometry(binstream_t *stream, wkb_dialect dialect, geom_consumer_t const *consumer,
-                         geom_header_t *header, errorstream_t *error) {
+                         geom_header_t *header, errorstream_t *error, int depth) {
   int result;
 
-  int (*read_body)(binstream_t *, wkb_dialect, const geom_consumer_t *, const geom_header_t *, errorstream_t *);
+  /* Nesting is attacker-controlled: every level costs a C stack frame here and a slot in the
+     fixed-size writer stacks downstream, so refuse to descend any further. */
+  if (depth >= GEOM_MAX_DEPTH) {
+    if (error) {
+      error_append(error, "Maximum geometry nesting depth (%d) exceeded", GEOM_MAX_DEPTH);
+    }
+    return SQLITE_IOERR;
+  }
+
+  int (*read_body)(binstream_t *, wkb_dialect, const geom_consumer_t *, const geom_header_t *, errorstream_t *, int);
   switch (header->geom_type) {
   case GEOM_POINT:
     read_body = read_point;
@@ -601,7 +624,7 @@ static int read_geometry(binstream_t *stream, wkb_dialect dialect, geom_consumer
     goto exit;
   }
 
-  result = (*read_body)(stream, dialect, consumer, header, error);
+  result = (*read_body)(stream, dialect, consumer, header, error, depth);
   if (result != SQLITE_OK) {
     goto exit;
   }
@@ -623,7 +646,7 @@ static int read_wkb_geometry(binstream_t *stream, wkb_dialect dialect, geom_cons
     return res;
   }
 
-  return read_geometry(stream, dialect, consumer, &header, error);
+  return read_geometry(stream, dialect, consumer, &header, error, 0);
 }
 
 int wkb_read_geometry(binstream_t *stream, wkb_dialect dialect, geom_consumer_t const *consumer, errorstream_t *error) {
@@ -657,6 +680,15 @@ static int wkb_begin_geometry(const geom_consumer_t *consumer, const geom_header
 
   wkb_writer_t *writer = (wkb_writer_t *)consumer;
   binstream_t *stream = &writer->stream;
+
+  /* start[] and children[] hold GEOM_MAX_DEPTH entries; descending further would write past
+     them and corrupt the surrounding struct. Reject before mutating any state. */
+  if (writer->offset + 1 >= GEOM_MAX_DEPTH) {
+    if (error) {
+      error_append(error, "Maximum geometry nesting depth (%d) exceeded", GEOM_MAX_DEPTH);
+    }
+    return SQLITE_ERROR;
+  }
 
   if (writer->offset >= 0) {
     writer->children[writer->offset]++;
@@ -854,17 +886,16 @@ static int wkb_end(const geom_consumer_t *consumer, errorstream_t *error) {
 
 int wkb_writer_init(wkb_writer_t *writer, wkb_dialect dialect) {
   geom_consumer_init(&writer->geom_consumer, NULL, wkb_end, wkb_begin_geometry, wkb_end_geometry, wkb_coordinates);
-  int res = binstream_init_growable(&writer->stream, 256);
-  if (res != SQLITE_OK) {
-    return res;
-  }
 
+  /* Bring the writer into a usable state before anything can fail: the callers ignore the result,
+     so returning early used to leave offset and the depth arrays holding stack garbage, which
+     wkb_begin_geometry would then index with. */
   memset(writer->start, 0, GEOM_MAX_DEPTH * sizeof(size_t));
   memset(writer->children, 0, GEOM_MAX_DEPTH * sizeof(size_t));
   writer->offset = -1;
   writer->dialect = dialect;
 
-  return SQLITE_OK;
+  return binstream_init_growable(&writer->stream, 256);
 }
 
 geom_consumer_t *wkb_writer_geom_consumer(wkb_writer_t *writer) { return &writer->geom_consumer; }

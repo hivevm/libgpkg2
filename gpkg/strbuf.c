@@ -19,7 +19,17 @@
 #include "strbuf.h"
 
 int strbuf_init(strbuf_t *strbuf, size_t initial_size) {
-  char *data = (char *)sqlite3_malloc((int)initial_size);
+  /* Defined, empty state first: callers ignore the result, and destroying a strbuf that never
+     got past this point would otherwise free a stack-garbage pointer. */
+  strbuf->buffer = NULL;
+  strbuf->capacity = 0;
+  strbuf->length = 0;
+  strbuf->growable = 1;
+
+  /* The 64-bit allocators avoid the cast to int: a size past INT_MAX turned negative, and
+     sqlite3_malloc/realloc clamp a negative size to zero - realloc then frees the old buffer
+     and returns NULL, leaving the caller with a dangling pointer. */
+  char *data = (char *)sqlite3_malloc64((sqlite3_uint64)initial_size);
   if (data == NULL) {
     return SQLITE_NOMEM;
   }
@@ -40,7 +50,9 @@ int strbuf_init_fixed(strbuf_t *strbuf, char *buffer, size_t length) {
 }
 
 int strbuf_reset(strbuf_t *strbuf) {
-  memset(strbuf->buffer, 0, strbuf->capacity);
+  if (strbuf->buffer != NULL) {
+    memset(strbuf->buffer, 0, strbuf->capacity);
+  }
   strbuf->length = 0;
   return SQLITE_OK;
 }
@@ -101,7 +113,7 @@ int strbuf_vappend(strbuf_t *buffer, const char *msg, va_list args) {
         new_capacity = needed_capacity;
       }
 
-      char *data = (char *)sqlite3_realloc(buffer->buffer, (int)new_capacity);
+      char *data = (char *)sqlite3_realloc64(buffer->buffer, (sqlite3_uint64)new_capacity);
       if (data == NULL) {
         result = SQLITE_NOMEM;
         goto exit;

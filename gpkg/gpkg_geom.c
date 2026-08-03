@@ -53,7 +53,7 @@ int gpb_read_header(binstream_t *stream, geom_blob_header_t *gpb, errorstream_t 
 
   if (memcmp(head, "GP", 2) != 0) {
     if (error) {
-      error_append(error, "Incorrect GPB magic number [expected: GP, actual:%*s]", 2, head);
+      error_append(error, "Incorrect GPB magic number [expected: GP, actual: 0x%02X%02X]", head[0], head[1]);
     }
     return SQLITE_IOERR;
   }
@@ -297,12 +297,17 @@ static int gpb_end(const geom_consumer_t *consumer, errorstream_t *error) {
   binstream_t *stream = &wkb->stream;
 
   size_t pos = binstream_position(stream);
+  /* Space gpb_begin_geometry reserved for the header, derived from the same envelope flags. */
+  size_t reserved = gpb_header_size(&writer->header);
+
   result = binstream_seek(stream, 0);
   if (result != SQLITE_OK) {
     goto exit;
   }
 
   geom_envelope_t *envelope = &writer->header.envelope;
+  /* An empty geometry has no envelope, and finalize drops the flags of the ordinates that never
+     saw a finite value, so other GeoPackage readers are not shown an envelope of NaNs. */
   if (geom_envelope_finalize(envelope) == EMPTY_GEOM) {
     writer->header.empty = 1;
   }
@@ -310,6 +315,21 @@ static int gpb_end(const geom_consumer_t *consumer, errorstream_t *error) {
   result = gpb_write_header(stream, &writer->header, NULL);
   if (result != SQLITE_OK) {
     goto exit;
+  }
+
+  /* Dropping envelope ordinates shortens the header, so pull the geometry up over the gap the
+     reservation left behind. Empty geometries and all-NaN ordinates get here; otherwise the
+     size is unchanged. */
+  size_t written = gpb_header_size(&writer->header);
+  if (written < reserved) {
+    result = binstream_seek(stream, 0);
+    if (result != SQLITE_OK) {
+      goto exit;
+    }
+
+    uint8_t *base = binstream_data(stream);
+    memmove(base + written, base + reserved, pos - reserved);
+    pos -= reserved - written;
   }
 
   result = binstream_seek(stream, pos);

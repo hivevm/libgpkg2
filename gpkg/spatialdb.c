@@ -83,19 +83,26 @@ static void ST_SRID(sqlite3_context *context, int nbArgs, sqlite3_value **args) 
     sqlite3_result_int(context, geomblob.srid);
   } else {
     FUNCTION_GET_INT_ARG(geomblob.srid, 1);
-    if (binstream_seek(&FUNCTION_GEOM_ARG_STREAM(geomblob), 0) != SQLITE_OK) {
-      sqlite3_result_error(context, "Error writing geometry blob header", -1);
+    /* The blob bytes belong to SQLite (or, for a value bound with SQLITE_STATIC, to the caller),
+       so the result is assembled in a fresh buffer, never written into the argument. The stream
+       is positioned just past the parsed header, i.e. at the geometry payload. */
+    binstream_t out;
+    if (binstream_init_growable(&out, binstream_available(&FUNCTION_GEOM_ARG_STREAM(geomblob))) != SQLITE_OK) {
+      sqlite3_result_error_nomem(context);
       goto exit;
     }
-    if (spatialdb->write_blob_header(&FUNCTION_GEOM_ARG_STREAM(geomblob), &geomblob, FUNCTION_ERROR) != SQLITE_OK) {
+    if (spatialdb->write_blob_header(&out, &geomblob, FUNCTION_ERROR) != SQLITE_OK ||
+        binstream_write_nu8(&out, binstream_data(&FUNCTION_GEOM_ARG_STREAM(geomblob)),
+                            binstream_available(&FUNCTION_GEOM_ARG_STREAM(geomblob))) != SQLITE_OK) {
+      binstream_destroy(&out, 1);
       if (error_count(FUNCTION_ERROR) == 0) {
         error_append(FUNCTION_ERROR, "Error writing geometry blob header");
       }
       goto exit;
     }
-    binstream_seek(&FUNCTION_GEOM_ARG_STREAM(geomblob), 0);
-    sqlite3_result_blob(context, binstream_data(&FUNCTION_GEOM_ARG_STREAM(geomblob)),
-                        (int)binstream_available(&FUNCTION_GEOM_ARG_STREAM(geomblob)), SQLITE_TRANSIENT);
+    binstream_flip(&out);
+    sqlite3_result_blob(context, binstream_data(&out), (int)binstream_available(&out), sqlite3_free);
+    binstream_destroy(&out, 0);
   }
 
   FUNCTION_END(context);
@@ -253,7 +260,7 @@ static int geometry_is_assignable(geom_type_t expected, geom_type_t actual, erro
     const char *expectedName = NULL;
     const char *actualName = NULL;
     if (geom_type_name(expected, &expectedName) == SQLITE_OK && geom_type_name(actual, &actualName) == SQLITE_OK) {
-      error_append(error, "Incorrect geometry type. Expected '%d' actual '%s'", expectedName, actualName);
+      error_append(error, "Incorrect geometry type. Expected '%s' actual '%s'", expectedName, actualName);
     } else {
       error_append(error, "Incorrect geometry type");
     }
@@ -268,39 +275,54 @@ typedef int (*geometry_constructor_func)(sqlite3_context *context, void *user_da
 
 static void geometry_constructor(sqlite3_context *context, const spatialdb_t *spatialdb,
                                  geometry_constructor_func constructor, void *user_data, geom_type_t requiredType,
-                                 int nbArgs, sqlite3_value **args) {
+                                 int min_constructor_args, int nbArgs, sqlite3_value **args) {
   FUNCTION_START_STATIC(context, 256);
 
-  geom_blob_auxdata *geom = (geom_blob_auxdata *)sqlite3_get_auxdata(context, 0);
+  /* The result depends on every argument, but auxdata can only be keyed on one of them. Caching is
+     therefore sound only for the single-argument form: with more arguments a constant first argument
+     would pin the first row's result for the whole query even as the other arguments change. */
+  int cacheable = (nbArgs == 1);
+
+  geom_blob_auxdata *geom = cacheable ? (geom_blob_auxdata *)sqlite3_get_auxdata(context, 0) : NULL;
 
   if (geom == NULL) {
     geom_blob_writer_t writer;
 
-    if (sqlite3_value_type(args[nbArgs - 1]) == SQLITE_INTEGER) {
-      spatialdb->writer_init_srid(&writer, sqlite3_value_int(args[nbArgs - 1]));
+    /* A trailing integer is taken as the SRID, but only while enough arguments remain for the
+       constructor itself: ST_Point(1, 2) is a point with integer coordinates, not an x with an
+       SRID, and used to be rejected as having too few coordinates. */
+    if (sqlite3_value_type(args[nbArgs - 1]) == SQLITE_INTEGER && nbArgs - 1 >= min_constructor_args) {
+      FUNCTION_RESULT = spatialdb->writer_init_srid(&writer, sqlite3_value_int(args[nbArgs - 1]));
       nbArgs -= 1;
     } else {
-      spatialdb->writer_init(&writer);
+      FUNCTION_RESULT = spatialdb->writer_init(&writer);
+    }
+
+    if (FUNCTION_RESULT != SQLITE_OK) {
+      goto exit;
     }
 
     FUNCTION_RESULT =
         constructor(context, user_data, geom_blob_writer_geom_consumer(&writer), nbArgs, args, FUNCTION_ERROR);
 
-    if (FUNCTION_RESULT == SQLITE_OK) {
-      if (geometry_is_assignable(requiredType, writer.geom_type, FUNCTION_ERROR) == SQLITE_OK) {
-        uint8_t *data = geom_blob_writer_getdata(&writer);
-        int length = (int)geom_blob_writer_length(&writer);
-        sqlite3_result_blob(context, data, length, SQLITE_TRANSIENT);
-        spatialdb->writer_destroy(&writer, 0);
+    if (FUNCTION_RESULT == SQLITE_OK &&
+        geometry_is_assignable(requiredType, writer.geom_type, FUNCTION_ERROR) == SQLITE_OK) {
+      uint8_t *data = geom_blob_writer_getdata(&writer);
+      int length = (int)geom_blob_writer_length(&writer);
+      sqlite3_result_blob(context, data, length, SQLITE_TRANSIENT);
 
-        geom = geom_blob_auxdata_malloc();
-        if (geom != NULL) {
-          geom->data = data;
-          geom->length = length;
-          sqlite3_set_auxdata(context, 0, geom, geom_blob_auxdata_free);
-        }
+      geom = cacheable ? geom_blob_auxdata_malloc() : NULL;
+      if (geom != NULL) {
+        /* auxdata takes ownership of the buffer and frees it in geom_blob_auxdata_free */
+        geom->data = data;
+        geom->length = length;
+        spatialdb->writer_destroy(&writer, 0);
+        sqlite3_set_auxdata(context, 0, geom, geom_blob_auxdata_free);
+      } else {
+        spatialdb->writer_destroy(&writer, 1);
       }
     } else {
+      /* Also covers a rejected geometry type, which used to leak the writer. */
       spatialdb->writer_destroy(&writer, 1);
     }
   } else {
@@ -326,7 +348,7 @@ static int geom_from_wkb(sqlite3_context *context, void *user_data, geom_consume
 
 static void ST_GeomFromWKB(sqlite3_context *context, int nbArgs, sqlite3_value **args) {
   spatialdb_t *spatialdb = (spatialdb_t *)sqlite3_user_data(context);
-  geometry_constructor(context, spatialdb, geom_from_wkb, NULL, GEOM_GEOMETRY, nbArgs, args);
+  geometry_constructor(context, spatialdb, geom_from_wkb, NULL, GEOM_GEOMETRY, 1, nbArgs, args);
 }
 
 typedef struct {
@@ -389,7 +411,8 @@ static int geom_from_wkt(sqlite3_context *context, void *user_data, geom_consume
 
 static void ST_GeomFromText(sqlite3_context *context, int nbArgs, sqlite3_value **args) {
   fromtext_t *fromtext = (fromtext_t *)sqlite3_user_data(context);
-  geometry_constructor(context, fromtext->spatialdb, geom_from_wkt, fromtext->locale, GEOM_GEOMETRY, nbArgs, args);
+  geometry_constructor(context, fromtext->spatialdb, geom_from_wkt, fromtext->locale, GEOM_GEOMETRY, 1, nbArgs,
+                       args);
 }
 
 static int point_from_coords(sqlite3_context *context, void *user_data, geom_consumer_t *consumer, int nbArgs,
@@ -441,11 +464,11 @@ static int point_from_coords(sqlite3_context *context, void *user_data, geom_con
 static void ST_Point(sqlite3_context *context, int nbArgs, sqlite3_value **args) {
   fromtext_t *fromtext = (fromtext_t *)sqlite3_user_data(context);
   if (sqlite3_value_type(args[0]) == SQLITE_TEXT) {
-    geometry_constructor(context, fromtext->spatialdb, geom_from_wkt, fromtext->locale, GEOM_POINT, nbArgs, args);
+    geometry_constructor(context, fromtext->spatialdb, geom_from_wkt, fromtext->locale, GEOM_POINT, 1, nbArgs, args);
   } else if (sqlite3_value_type(args[0]) == SQLITE_BLOB) {
-    geometry_constructor(context, fromtext->spatialdb, geom_from_wkb, NULL, GEOM_POINT, nbArgs, args);
+    geometry_constructor(context, fromtext->spatialdb, geom_from_wkb, NULL, GEOM_POINT, 1, nbArgs, args);
   } else {
-    geometry_constructor(context, fromtext->spatialdb, point_from_coords, NULL, GEOM_POINT, nbArgs, args);
+    geometry_constructor(context, fromtext->spatialdb, point_from_coords, NULL, GEOM_POINT, 2, nbArgs, args);
   }
 }
 
@@ -587,6 +610,10 @@ static void GPKG_AddGeometryColumn(sqlite3_context *context, int nbArgs, sqlite3
     FUNCTION_GET_TEXT_ARG(context, column_name, 2);
     FUNCTION_GET_TEXT_ARG(context, geometry_type, 3);
     FUNCTION_GET_INT_ARG(srs_id, 4);
+    /* Same defaults as the unqualified four argument form: naming the database must not change
+       the recorded z/m support from optional to prohibited. */
+    FUNCTION_SET_INT_ARG(z, 2);
+    FUNCTION_SET_INT_ARG(m, 2);
   } else if (nbArgs == 6) {
     FUNCTION_SET_TEXT_ARG(db_name, "main");
     FUNCTION_GET_TEXT_ARG(context, table_name, 0);
@@ -932,20 +959,28 @@ int spatialdb_init(sqlite3 *db, const char **pzErrMsg, const sqlite3_api_routine
 }
 
 int init_geopackage_extension(sqlite3 *db, char **pzErrMsg, const void *pApi) {
-  /* suppressing stupid compiler warnings */
-  if (pApi == NULL)
-    pApi = NULL;
-
   /* setting the POSIX locale for numeric */
   setlocale(LC_NUMERIC, "POSIX");
 
-  // initialize spatialdb with geopackage schema using LIBGPKG
-  *pzErrMsg = NULL;
-  const char *errorMessage = *pzErrMsg;
-  spatialdb_init(db, &errorMessage, NULL, spatialdb_geopackage_schema());
+  /* pApi must be handed on: in a build without SQLITE_CORE every sqlite3_* call goes through it,
+     so discarding it leaves the redirection table NULL and the first API call dereferences it. */
+  const char *errorMessage = NULL;
+  int result =
+      spatialdb_init(db, &errorMessage, (const sqlite3_api_routines *)pApi, spatialdb_geopackage_schema());
+
+  /* The message is sqlite3_mprintf'd; SQLite frees whatever is handed back through pzErrMsg. */
+  if (pzErrMsg != NULL) {
+    *pzErrMsg = (char *)errorMessage;
+  } else if (errorMessage != NULL) {
+    sqlite3_free((void *)errorMessage);
+  }
+
+  if (result != SQLITE_OK) {
+    return result;
+  }
 
   /* setting a timeout handler */
   sqlite3_busy_timeout(db, 5000);
 
-  return 0;
+  return SQLITE_OK;
 }

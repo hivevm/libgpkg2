@@ -350,7 +350,7 @@ static int sql_check_cols_row(sqlite3 *db, sqlite3_stmt *stmt, void *data) {
         }
         sqlite3_free(expected);
       } else if (default_value.type == VALUE_FUNC) {
-        char *expected = sqlite3_mprintf(VALUE_AS_TEXT(default_value));
+        char *expected = sqlite3_mprintf("%s", VALUE_AS_TEXT(default_value));
         if (sqlite3_column_type(stmt, 4) == SQLITE_NULL) {
           error_append(error, "Column %s.%s has incorrect default value: expected '%s' but was NULL", table_info->name,
                        name, expected);
@@ -525,7 +525,7 @@ static int sql_check_data(sqlite3 *db, const char *db_name, const table_info_t *
     goto exit;
   }
 
-  result = sql_stmt_init(&stmt, db, query);
+  result = sql_stmt_init(&stmt, db, "%s", query);
   if (result != SQLITE_OK) {
     goto exit;
   }
@@ -623,7 +623,7 @@ static int sql_insert_data(sqlite3 *db, const char *db_name, const table_info_t 
     goto exit;
   }
 
-  result = sql_stmt_init(&stmt, db, query);
+  result = sql_stmt_init(&stmt, db, "%s", query);
   if (result != SQLITE_OK) {
     goto exit;
   }
@@ -640,7 +640,7 @@ static int sql_insert_data(sqlite3 *db, const char *db_name, const table_info_t 
     if (step_res != SQLITE_DONE) {
       result = step_res;
       if (error) {
-        result = error_append(error, sqlite3_errmsg(db));
+        result = error_append(error, "%s", sqlite3_errmsg(db));
         if (result != SQLITE_OK) {
           goto exit;
         }
@@ -778,9 +778,9 @@ static int sql_create_table(sqlite3 *db, const char *db_name, const table_info_t
 
   strbuf_append(&sql, "\n)");
 
-  result = sql_exec(db, strbuf_data_pointer(&sql));
+  result = sql_exec(db, "%s", strbuf_data_pointer(&sql));
   if (result != SQLITE_OK && error) {
-    error_append(error, sqlite3_errmsg(db));
+    error_append(error, "%s", sqlite3_errmsg(db));
   }
 
   strbuf_destroy(&sql);
@@ -798,7 +798,12 @@ static int sql_init_check_table(sqlite3 *db, const char *db_name, const table_in
 
   int exists = 0;
   int result = sql_check_table_exists(db, db_name, table_info->name, &exists);
-  if (result == SQLITE_OK) {
+  if (result != SQLITE_OK) {
+    /* Without this the caller reports a bare "unknown error", which is what an unknown database
+       name used to produce. */
+    error_append(error, "Could not check whether table %s.%s exists: %s", db_name, table_info->name,
+                 sqlite3_errmsg(db));
+  } else {
     if (exists) {
       result = sql_check_table_schema(db, db_name, table_info, flags, error);
 
@@ -838,7 +843,14 @@ int sql_begin(sqlite3 *db, char *name) { return sql_exec(db, "SAVEPOINT %Q", nam
 
 int sql_commit(sqlite3 *db, char *name) { return sql_exec(db, "RELEASE SAVEPOINT %Q", name); }
 
-int sql_rollback(sqlite3 *db, char *name) { return sql_exec(db, "ROLLBACK TO SAVEPOINT %Q", name); }
+int sql_rollback(sqlite3 *db, char *name) {
+  int result = sql_exec(db, "ROLLBACK TO SAVEPOINT %Q", name);
+  /* ROLLBACK TO undoes the work but leaves the savepoint on the transaction stack. Without the
+     matching RELEASE the connection never returns to autocommit: later statements join the still
+     open transaction, are reported as successful, and are discarded when the connection closes. */
+  int released = sql_exec(db, "RELEASE SAVEPOINT %Q", name);
+  return result != SQLITE_OK ? result : released;
+}
 
 int sql_init_stmt(sqlite3_stmt **stmt, sqlite3 *db, char *sql) { return sql_stmt_init(stmt, db, sql); }
 
@@ -851,7 +863,7 @@ static int sql_integrity_check_row(sqlite3 *db, sqlite3_stmt *stmt, void *data) 
 }
 
 static int sql_integrity_check(sqlite3 *db, const char *db_name, errorstream_t *error) {
-  return sql_exec_stmt(db, sql_integrity_check_row, NULL, error, "PRAGMA integrity_check");
+  return sql_exec_stmt(db, sql_integrity_check_row, NULL, error, "PRAGMA \"%w\".integrity_check", db_name);
 }
 
 typedef struct {
@@ -925,7 +937,8 @@ static int sql_foreign_key_check_row(sqlite3 *db, sqlite3_stmt *stmt, void *data
     goto exit;
   }
 
-  result = sql_exec_for_string(db, &value, "SELECT \"%w\" FROM \"%w\".\"%w\" WHERE ROWID = %d", info.from_column,
+  /* rowId is a 64 bit value; %d would consume only an int and report the wrong row beyond 2^31. */
+  result = sql_exec_for_string(db, &value, "SELECT \"%w\" FROM \"%w\".\"%w\" WHERE ROWID = %lld", info.from_column,
                                d->db_name, table, rowId);
   if (result != SQLITE_OK) {
     goto exit;
@@ -947,7 +960,9 @@ exit:
 
 static int sql_foreign_key_check(sqlite3 *db, const char *db_name, errorstream_t *error) {
   foreign_key_check_data data = {db_name, error};
-  return sql_exec_stmt(db, sql_foreign_key_check_row, NULL, &data, "PRAGMA foreign_key_check");
+  /* Unqualified, the pragma checks main only, so violations in the named attached database went
+     unnoticed and violations in main were attributed to it. */
+  return sql_exec_stmt(db, sql_foreign_key_check_row, NULL, &data, "PRAGMA \"%w\".foreign_key_check", db_name);
 }
 
 typedef int (*check_func)(sqlite3 *db, const char *db_name, errorstream_t *error);

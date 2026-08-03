@@ -31,7 +31,12 @@ int binstream_init(binstream_t *stream, uint8_t *data, size_t length) {
 }
 
 int binstream_init_growable(binstream_t *stream, size_t initial_cap) {
-  uint8_t *data = (uint8_t *)sqlite3_malloc((int)(initial_cap * sizeof(uint8_t)));
+  /* Leave the stream in a defined, empty state even when the allocation below fails: callers
+     ignore the result, and an uninitialised data pointer and capacity turn the first write into
+     a wild store rather than a clean out-of-memory error. */
+  binstream_init(stream, NULL, 0);
+
+  uint8_t *data = (uint8_t *)sqlite3_malloc64((sqlite3_uint64)initial_cap * sizeof(uint8_t));
   if (data == NULL) {
     return SQLITE_NOMEM;
   }
@@ -81,7 +86,10 @@ static int binstream_ensurecapacity(binstream_t *stream, size_t needed) {
     if (needed > newcapacity) {
       newcapacity = needed;
     }
-    uint8_t *newdata = (uint8_t *)sqlite3_realloc(stream->data, (int)(newcapacity * sizeof(uint8_t)));
+    /* 64-bit allocation: the cast to int turned a capacity past INT_MAX negative, and
+       sqlite3_realloc clamps that to zero, freeing the buffer and returning NULL - the stream
+       was then left pointing at freed memory. */
+    uint8_t *newdata = (uint8_t *)sqlite3_realloc64(stream->data, (sqlite3_uint64)newcapacity * sizeof(uint8_t));
     if (newdata == NULL) {
       return SQLITE_NOMEM;
     }
@@ -222,15 +230,19 @@ int binstream_read_i32(binstream_t *stream, int32_t *out) {
     return result;
   }
 
-  int32_t v1 = stream->data[stream->position++];
-  int32_t v2 = stream->data[stream->position++];
-  int32_t v3 = stream->data[stream->position++];
-  int32_t v4 = stream->data[stream->position++];
+  /* Assemble as unsigned: shifting a set bit into the sign bit of an int is undefined
+     behaviour, and negative values are ordinary here (-1 is the default SRID). */
+  uint32_t v1 = stream->data[stream->position++];
+  uint32_t v2 = stream->data[stream->position++];
+  uint32_t v3 = stream->data[stream->position++];
+  uint32_t v4 = stream->data[stream->position++];
+  uint32_t val;
   if (stream->end == LITTLE) {
-    *out = (v1 << 0) | (v2 << 8) | (v3 << 16) | (v4 << 24);
+    val = (v1 << 0) | (v2 << 8) | (v3 << 16) | (v4 << 24);
   } else {
-    *out = (v4 << 0) | (v3 << 8) | (v2 << 16) | (v1 << 24);
+    val = (v4 << 0) | (v3 << 8) | (v2 << 16) | (v1 << 24);
   }
+  *out = (int32_t)val;
   return SQLITE_OK;
 }
 

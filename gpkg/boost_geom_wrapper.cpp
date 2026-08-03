@@ -12,6 +12,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#include <memory>
+
 #include <boost/algorithm/string.hpp>
 #include <boost/geometry/geometry.hpp>
 #include <boost/variant/variant.hpp>
@@ -44,6 +46,38 @@ public:
 };
 
 namespace detail {
+
+/* Owns a GeometryPtr across Boost.Geometry calls that may throw, so the geometry is released
+   when an exception unwinds to the SQLite boundary guard instead of leaking. Raw pointer results
+   use std::unique_ptr instead; this class exists because GeometryPtr is a variant, not a
+   pointer. */
+class geometry_guard {
+public:
+  explicit geometry_guard(GeometryPtr geometry)
+      : _geometry(geometry) {}
+
+  ~geometry_guard() { delete_geometry(_geometry); }
+
+  const GeometryPtr &get() const { return _geometry; }
+
+  void reset(GeometryPtr geometry) {
+    delete_geometry(_geometry);
+    _geometry = geometry;
+  }
+
+  GeometryPtr release() {
+    GeometryPtr geometry = _geometry;
+    _geometry = boost::blank();
+    return geometry;
+  }
+
+  geometry_guard(const geometry_guard &) = delete;
+  geometry_guard &operator=(const geometry_guard &) = delete;
+
+private:
+  GeometryPtr _geometry;
+};
+
 template <typename Visitor> struct geometry_ptr_visitor : boost::static_visitor<typename Visitor::result_type> {
   typename Visitor::result_type null_result;
 
@@ -131,9 +165,9 @@ template <typename Visitor> struct geometry_ptr_visitor : boost::static_visitor<
 
 struct clone : boost::static_visitor<GeometryPtr> {
   template <typename Geometry> GeometryPtr operator()(const Geometry &geom) const {
-    Geometry *gc = new Geometry();
+    std::unique_ptr<Geometry> gc(new Geometry());
     *gc = geom;
-    return gc;
+    return gc.release();
   }
 };
 
@@ -168,31 +202,26 @@ struct equal : boost::static_visitor<int> {
 struct envelope : boost::static_visitor<GeometryPtr> {
 
   GeometryPtr operator()(const gpkg::GeometryCollection &geom) const {
-    GeometryPtr envelope;
+    geometry_guard envelope{boost::blank()};
 
     for (auto it = geom.cbegin(); it < geom.cend(); ++it) {
-      GeometryPtr part_env = boost::apply_visitor(*this, *it);
+      geometry_guard part_env{boost::apply_visitor(*this, *it)};
 
       if (it == geom.cbegin()) {
-        envelope = part_env;
+        envelope.reset(part_env.release());
         continue;
       }
 
-      GeometryPtr env_union = union_(envelope, part_env);
-
-      delete_geometry(envelope);
-      delete_geometry(part_env);
-
-      envelope = env_union;
+      envelope.reset(union_(envelope.get(), part_env.get()));
     }
 
-    return envelope;
+    return envelope.release();
   }
 
   template <typename Geometry> GeometryPtr operator()(const Geometry &geom) const {
-    Envelope *envelope = new Envelope();
+    std::unique_ptr<Envelope> envelope(new Envelope());
     boost::geometry::envelope(geom, *envelope);
-    return envelope;
+    return envelope.release();
   }
 };
 
@@ -473,26 +502,26 @@ struct intersects : boost::static_visitor<int> {
 struct union_ : boost::static_visitor<GeometryPtr> {
 
   GeometryPtr operator()(const gpkg::GeometryCollection &geomColl1, const gpkg::GeometryCollection &geomColl2) const {
-    GeometryCollection *gc = new GeometryCollection();
+    std::unique_ptr<GeometryCollection> gc(new GeometryCollection());
     *gc = geomColl1;
     gc->insert(gc->end(), geomColl2.begin(), geomColl2.end());
-    return gc;
+    return gc.release();
   }
 
   template <typename Geometry>
   GeometryPtr operator()(const Geometry &geom, const gpkg::GeometryCollection &geomColl) const {
-    GeometryCollection *gc = new GeometryCollection();
+    std::unique_ptr<GeometryCollection> gc(new GeometryCollection());
     gc->push_back(geom);
     gc->insert(gc->end(), geomColl.begin(), geomColl.end());
-    return gc;
+    return gc.release();
   }
 
   template <typename Geometry>
   GeometryPtr operator()(const gpkg::GeometryCollection &geomColl, const Geometry &geom) const {
-    GeometryCollection *gc = new GeometryCollection();
+    std::unique_ptr<GeometryCollection> gc(new GeometryCollection());
     *gc = geomColl;
     gc->push_back(geom);
-    return gc;
+    return gc.release();
   }
 
   GeometryPtr operator()(const gpkg::Envelope &, const gpkg::GeometryCollection &) const {
@@ -521,16 +550,16 @@ struct union_ : boost::static_visitor<GeometryPtr> {
     gpkg::MultiPolygon envUnion;
     boost::geometry::union_(poly1, poly2, envUnion);
 
-    gpkg::Envelope *box = new gpkg::Envelope();
+    std::unique_ptr<gpkg::Envelope> box(new gpkg::Envelope());
     boost::geometry::envelope(envUnion, *box);
 
-    return box;
+    return box.release();
   }
 
 #define BOOST_UNION(Type)                                                                                              \
-  Multi##Type *geomUnion = new Multi##Type();                                                                          \
+  std::unique_ptr<Multi##Type> geomUnion(new Multi##Type());                                                           \
   boost::geometry::union_(geom1, geom2, *geomUnion);                                                                   \
-  return geomUnion;
+  return geomUnion.release();
 
 #define UNION_OPERATORS(Type)                                                                                          \
   GeometryPtr operator()(const Type &geom1, const Type &geom2)                                                         \
@@ -545,10 +574,10 @@ struct union_ : boost::static_visitor<GeometryPtr> {
 
   template <typename Geometry1, typename Geometry2>
   GeometryPtr operator()(const Geometry1 &geom1, const Geometry2 &geom2) const {
-    GeometryCollection *gc = new GeometryCollection();
+    std::unique_ptr<GeometryCollection> gc(new GeometryCollection());
     gc->push_back(geom1);
     gc->push_back(geom2);
-    return gc;
+    return gc.release();
   }
 };
 
@@ -575,21 +604,21 @@ struct coordinates : boost::static_visitor<std::vector<gpkg::Point>> {
 struct subgeometry : boost::static_visitor<GeometryPtr> {
 
   GeometryPtr operator()(const gpkg::MultiPoint &geom, int idx) const {
-    gpkg::Point *p = new gpkg::Point();
+    std::unique_ptr<gpkg::Point> p(new gpkg::Point());
     *p = geom[static_cast<std::size_t>(idx)];
-    return p;
+    return p.release();
   }
 
   GeometryPtr operator()(const gpkg::MultiLineString &geom, int idx) const {
-    gpkg::LineString *l = new gpkg::LineString();
+    std::unique_ptr<gpkg::LineString> l(new gpkg::LineString());
     *l = geom[static_cast<std::size_t>(idx)];
-    return l;
+    return l.release();
   }
 
   GeometryPtr operator()(const gpkg::MultiPolygon &geom, int idx) const {
-    gpkg::Polygon *p = new gpkg::Polygon();
+    std::unique_ptr<gpkg::Polygon> p(new gpkg::Polygon());
     *p = geom[static_cast<std::size_t>(idx)];
-    return p;
+    return p.release();
   }
 
   GeometryPtr operator()(const gpkg::GeometryCollection &geom, int idx) const {
@@ -602,74 +631,65 @@ struct subgeometry : boost::static_visitor<GeometryPtr> {
 struct scale : boost::static_visitor<GeometryPtr> {
 
   GeometryPtr operator()(const gpkg::GeometryCollection &geom, double factor) const {
-    GeometryPtr gc = new GeometryCollection();
+    geometry_guard gc{GeometryPtr(new GeometryCollection())};
     auto bound_visitor = std::bind(*this, std::placeholders::_1, factor);
 
     for (auto it = geom.cbegin(); it < geom.cend(); ++it) {
-      GeometryPtr scaled = boost::apply_visitor(bound_visitor, *it);
-      GeometryPtr _union = gpkg::union_(gc, scaled);
-      delete_geometry(gc);
-      delete_geometry(scaled);
-      gc = _union;
+      geometry_guard scaled{boost::apply_visitor(bound_visitor, *it)};
+      gc.reset(gpkg::union_(gc.get(), scaled.get()));
     }
 
-    return gc;
+    return gc.release();
   }
 
   template <typename Geometry> GeometryPtr operator()(const Geometry &geom, double factor) const {
-    Geometry *res = new Geometry();
+    std::unique_ptr<Geometry> res(new Geometry());
     boost::geometry::strategy::transform::scale_transformer<double, 2, 2> scale(factor);
     boost::geometry::transform(geom, *res, scale);
-    return res;
+    return res.release();
   }
 };
 
 struct translate : boost::static_visitor<GeometryPtr> {
 
   GeometryPtr operator()(const gpkg::GeometryCollection &geom, double tx, double ty) const {
-    GeometryPtr gc = new GeometryCollection();
+    geometry_guard gc{GeometryPtr(new GeometryCollection())};
     auto bound_visitor = std::bind(*this, std::placeholders::_1, tx, ty);
 
     for (auto it = geom.cbegin(); it < geom.cend(); ++it) {
-      GeometryPtr translated = boost::apply_visitor(bound_visitor, *it);
-      GeometryPtr _union = gpkg::union_(gc, translated);
-      delete_geometry(gc);
-      delete_geometry(translated);
-      gc = _union;
+      geometry_guard translated{boost::apply_visitor(bound_visitor, *it)};
+      gc.reset(gpkg::union_(gc.get(), translated.get()));
     }
 
-    return gc;
+    return gc.release();
   }
 
   template <typename Geometry> GeometryPtr operator()(const Geometry &geom, double tx, double ty) const {
-    Geometry *res = new Geometry();
+    std::unique_ptr<Geometry> res(new Geometry());
     boost::geometry::strategy::transform::translate_transformer<double, 2, 2> translate(tx, ty);
     boost::geometry::transform(geom, *res, translate);
-    return res;
+    return res.release();
   }
 };
 
 struct rotate : boost::static_visitor<GeometryPtr> {
 
   GeometryPtr operator()(const gpkg::GeometryCollection &geom, double angle, double cx, double cy) const {
-    GeometryPtr gc = new GeometryCollection();
+    geometry_guard gc{GeometryPtr(new GeometryCollection())};
     auto bound_visitor = std::bind(*this, std::placeholders::_1, angle, cx, cy);
 
     for (auto it = geom.cbegin(); it < geom.cend(); ++it) {
-      GeometryPtr rotated = boost::apply_visitor(bound_visitor, *it);
-      GeometryPtr _union = gpkg::union_(gc, rotated);
-      delete_geometry(gc);
-      delete_geometry(rotated);
-      gc = _union;
+      geometry_guard rotated{boost::apply_visitor(bound_visitor, *it)};
+      gc.reset(gpkg::union_(gc.get(), rotated.get()));
     }
 
-    return gc;
+    return gc.release();
   }
 
   template <typename Geometry> GeometryPtr operator()(const Geometry &geom, double angle, double cx, double cy) const {
-    Geometry *res_t1 = new Geometry();
-    Geometry *res_r = new Geometry();
-    Geometry *res_t2 = new Geometry();
+    std::unique_ptr<Geometry> res_t1(new Geometry());
+    std::unique_ptr<Geometry> res_r(new Geometry());
+    std::unique_ptr<Geometry> res_t2(new Geometry());
     // Rotate is calculated with respect to (0,0) coordinates. To rotate a
     // geometry respect to its center, cx and cy should be the coordinates if
     // the center. If this is the case, we translate the geometry in order to
@@ -681,33 +701,28 @@ struct rotate : boost::static_visitor<GeometryPtr> {
     boost::geometry::transform(geom, *res_t1, translate1);
     boost::geometry::transform(*res_t1, *res_r, rotate);
     boost::geometry::transform(*res_r, *res_t2, translate2);
-    delete res_t1;
-    delete res_r;
-    return res_t2;
+    return res_t2.release();
   }
 };
 
 struct reverse : boost::static_visitor<GeometryPtr> {
 
   GeometryPtr operator()(const gpkg::GeometryCollection &geom) const {
-    GeometryPtr gc = new GeometryCollection();
+    geometry_guard gc{GeometryPtr(new GeometryCollection())};
     auto bound_visitor = std::bind(*this, std::placeholders::_1);
 
     for (auto it = geom.cbegin(); it < geom.cend(); ++it) {
-      GeometryPtr reversed = boost::apply_visitor(bound_visitor, *it);
-      GeometryPtr _union = gpkg::union_(gc, reversed);
-      delete_geometry(gc);
-      delete_geometry(reversed);
-      gc = _union;
+      geometry_guard reversed{boost::apply_visitor(bound_visitor, *it)};
+      gc.reset(gpkg::union_(gc.get(), reversed.get()));
     }
 
-    return gc;
+    return gc.release();
   }
 
   template <typename Geometry> GeometryPtr operator()(const Geometry &geom) const {
-    Geometry *res = new Geometry(geom);
+    std::unique_ptr<Geometry> res(new Geometry(geom));
     boost::geometry::reverse(*res);
-    return res;
+    return res.release();
   }
 };
 
@@ -715,23 +730,20 @@ struct affine : boost::static_visitor<GeometryPtr> {
 
   GeometryPtr operator()(const gpkg::GeometryCollection &geom, double a, double b, double d, double e, double xoff,
                          double yoff) const {
-    GeometryPtr gc = new GeometryCollection();
+    geometry_guard gc{GeometryPtr(new GeometryCollection())};
     auto bound_visitor = std::bind(*this, std::placeholders::_1, a, b, d, e, xoff, yoff);
 
     for (auto it = geom.cbegin(); it < geom.cend(); ++it) {
-      GeometryPtr transformed = boost::apply_visitor(bound_visitor, *it);
-      GeometryPtr _union = gpkg::union_(gc, transformed);
-      delete_geometry(gc);
-      delete_geometry(transformed);
-      gc = _union;
+      geometry_guard transformed{boost::apply_visitor(bound_visitor, *it)};
+      gc.reset(gpkg::union_(gc.get(), transformed.get()));
     }
 
-    return gc;
+    return gc.release();
   }
 
   template <typename Geometry>
   GeometryPtr operator()(const Geometry &geom, double a, double b, double d, double e, double xoff, double yoff) const {
-    Geometry *res = new Geometry();
+    std::unique_ptr<Geometry> res(new Geometry());
 
     /*  Affine transformation matrix:
 
@@ -742,31 +754,28 @@ struct affine : boost::static_visitor<GeometryPtr> {
 
     boost::geometry::strategy::transform::matrix_transformer<double, 2, 2> affine(a, b, xoff, d, e, yoff, 0, 0, 1);
     boost::geometry::transform(geom, *res, affine);
-    return res;
+    return res.release();
   }
 };
 
 template <typename Strategy> struct project : boost::static_visitor<GeometryPtr> {
 
   GeometryPtr operator()(const gpkg::GeometryCollection &geom, const Strategy &strategy) const {
-    GeometryPtr gc = new GeometryCollection();
+    geometry_guard gc{GeometryPtr(new GeometryCollection())};
     auto bound_visitor = std::bind(*this, std::placeholders::_1, strategy);
 
     for (auto it = geom.cbegin(); it < geom.cend(); ++it) {
-      GeometryPtr transformed = boost::apply_visitor(bound_visitor, *it);
-      GeometryPtr _union = gpkg::union_(gc, transformed);
-      delete_geometry(gc);
-      delete_geometry(transformed);
-      gc = _union;
+      geometry_guard transformed{boost::apply_visitor(bound_visitor, *it)};
+      gc.reset(gpkg::union_(gc.get(), transformed.get()));
     }
 
-    return gc;
+    return gc.release();
   }
 
   template <typename Geometry> GeometryPtr operator()(const Geometry &geom, const Strategy &strategy) const {
-    Geometry *res = new Geometry();
+    std::unique_ptr<Geometry> res(new Geometry());
     boost::geometry::transform(geom, *res, strategy);
-    return res;
+    return res.release();
   }
 };
 

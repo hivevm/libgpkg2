@@ -69,7 +69,7 @@ static column_info_t gpkg_contents_columns[] = {
     {"data_type", "TEXT", N, SQL_NOT_NULL, NULL},
     {"identifier", "TEXT", N, SQL_UNIQUE(1), NULL},
     {"description", "TEXT", T(""), 0, NULL},
-    {"last_change", "DATETIME", F("strftime('%%Y-%%m-%%dT%%H:%%M:%%fZ',CURRENT_TIMESTAMP)"), SQL_NOT_NULL, NULL},
+    {"last_change", "DATETIME", F("strftime('%Y-%m-%dT%H:%M:%fZ',CURRENT_TIMESTAMP)"), SQL_NOT_NULL, NULL},
     {"min_x", "DOUBLE", N, 0, NULL},
     {"min_y", "DOUBLE", N, 0, NULL},
     {"max_x", "DOUBLE", N, 0, NULL},
@@ -171,7 +171,7 @@ static column_info_t gpkg_metadata_reference_columns[] = {
     {"table_name", "TEXT", N, 0, NULL},
     {"column_name", "TEXT", N, 0, NULL},
     {"row_id_value", "INTEGER", N, 0, NULL},
-    {"timestamp", "DATETIME", F("strftime('%%Y-%%m-%%dT%%H:%%M:%%fZ',CURRENT_TIMESTAMP)"), SQL_NOT_NULL, NULL},
+    {"timestamp", "DATETIME", F("strftime('%Y-%m-%dT%H:%M:%fZ',CURRENT_TIMESTAMP)"), SQL_NOT_NULL, NULL},
     {"md_file_id", "INTEGER", N, SQL_NOT_NULL, "CONSTRAINT fk_file_id__metadata_id REFERENCES gpkg_metadata(id)"},
     {"md_parent_id", "INTEGER", N, 0, "CONSTRAINT fk_parent_id__metadata_id REFERENCES gpkg_metadata(id)"},
     {NULL, NULL, N, 0, NULL}};
@@ -193,16 +193,18 @@ static int init(sqlite3 *db, const char *db_name, errorstream_t *error) {
   int result = SQLITE_OK;
   const table_info_t *const *table = gpkg_tables;
 
+  /* Both pragmas need the schema qualifier: unqualified they always applied to main, so an
+     attached GeoPackage never received the header stamp and main's header was overwritten. */
   // application_id = 1196444487 (see https://www.geopackage.org/spec)
-  result = sql_exec(db, "PRAGMA application_id = %d", 0x47504B47);
+  result = sql_exec(db, "PRAGMA \"%w\".application_id = %d", db_name, 0x47504B47);
   if (result != SQLITE_OK) {
-    error_append(error, "Could not set application_id");
+    error_append(error, "Could not set application_id: %s", sqlite3_errmsg(db));
   }
 
   // user_version = 10200 (1.2) (see https://www.geopackage.org/spec)
-  result = sql_exec(db, "PRAGMA user_version = %d", 0x000027D8);
+  result = sql_exec(db, "PRAGMA \"%w\".user_version = %d", db_name, 0x000027D8);
   if (result != SQLITE_OK) {
-    error_append(error, "Could not set user_version");
+    error_append(error, "Could not set user_version: %s", sqlite3_errmsg(db));
   }
 
   if (result == SQLITE_OK) {
@@ -241,7 +243,7 @@ static int gpkg_contents_geometry_table_check(sqlite3 *db, const char *db_name, 
                              db_name, db_name);
 
   if (result != SQLITE_OK) {
-    error_append(error, sqlite3_errmsg(db));
+    error_append(error, "%s", sqlite3_errmsg(db));
   }
 
   return result;
@@ -266,7 +268,7 @@ static int gpkg_contents_tilemetadata_table_check(sqlite3 *db, const char *db_na
                              db_name, db_name);
 
   if (result != SQLITE_OK) {
-    error_append(error, sqlite3_errmsg(db));
+    error_append(error, "%s", sqlite3_errmsg(db));
   }
 
   return result;
@@ -333,7 +335,7 @@ static int gpkg_table_column_check(sqlite3 *db, const char *db_name, const char 
   }
 
   if (result != SQLITE_OK) {
-    error_append(error, sqlite3_errmsg(db));
+    error_append(error, "%s", sqlite3_errmsg(db));
   }
 
   return result;
@@ -459,12 +461,12 @@ static int add_geometry_column(sqlite3 *db, const char *db_name, const char *tab
 
   if (z < 0 || z > 2) {
     error_append(error, "Invalid Z flag value: %d", z);
-    return result;
+    return SQLITE_ERROR;
   }
 
   if (m < 0 || m > 2) {
-    error_append(error, "Invalid M flag value: %d", z);
-    return result;
+    error_append(error, "Invalid M flag value: %d", m);
+    return SQLITE_ERROR;
   }
 
   // Check if the target table exists
@@ -486,7 +488,11 @@ static int add_geometry_column(sqlite3 *db, const char *db_name, const char *tab
 
   // Check if the SRID is defined
   int count = 0;
-  result = sql_exec_for_int(db, &count, "SELECT count(*) FROM gpkg_spatial_ref_sys WHERE srs_id = %d", srs_id);
+  /* Qualify with the target database: unqualified this resolved against main, so an SRS defined
+     only in an attached GeoPackage was reported as missing, and one defined only in main was
+     accepted and written as a dangling srs_id reference into the attached database. */
+  result = sql_exec_for_int(db, &count, "SELECT count(*) FROM \"%w\".\"%w\" WHERE srs_id = %d", db_name,
+                            "gpkg_spatial_ref_sys", srs_id);
   if (result != SQLITE_OK) {
     return result;
   }
@@ -499,8 +505,32 @@ static int add_geometry_column(sqlite3 *db, const char *db_name, const char *tab
   result = sql_exec(db, "ALTER TABLE \"%w\".\"%w\" ADD COLUMN \"%w\" %s", db_name, table_name, column_name,
                     normalized_geom_type);
   if (result != SQLITE_OK) {
-    error_append(error, sqlite3_errmsg(db));
+    error_append(error, "%s", sqlite3_errmsg(db));
     return result;
+  }
+
+  /* gpkg_geometry_columns references gpkg_contents(table_name), so the contents row must exist
+     before the geometry column row is inserted; a table the application already registered in
+     gpkg_contents keeps its existing row. */
+  int contents_count = 0;
+  result = sql_exec_for_int(db, &contents_count, "SELECT count(*) FROM \"%w\".\"%w\" WHERE table_name = %Q", db_name,
+                            "gpkg_contents", table_name);
+  if (result != SQLITE_OK) {
+    error_append(error, "%s", sqlite3_errmsg(db));
+    return result;
+  }
+
+  if (contents_count == 0) {
+    result = sql_exec(db,
+                      "INSERT INTO \"%w\".\"%w\" (table_name, data_type, "
+                      "identifier, min_x, min_y, max_x, max_y, srs_id) VALUES "
+                      "(%Q, %Q, %Q, %7.4f, %7.4f, %7.4f, %7.4f, %d)",
+                      db_name, "gpkg_contents", table_name, "features", table_name, -180.0000, -90.0000, 180.0000,
+                      90.0000, srs_id);
+    if (result != SQLITE_OK) {
+      error_append(error, "%s", sqlite3_errmsg(db));
+      return result;
+    }
   }
 
   result = sql_exec(db,
@@ -508,18 +538,7 @@ static int add_geometry_column(sqlite3 *db, const char *db_name, const char *tab
                     "%Q, %Q, %d, %d, %d)",
                     db_name, "gpkg_geometry_columns", table_name, column_name, normalized_geom_type, srs_id, z, m);
   if (result != SQLITE_OK) {
-    error_append(error, sqlite3_errmsg(db));
-    return result;
-  }
-
-  result = sql_exec(db,
-                    "INSERT INTO \"%w\".\"%w\" (table_name, data_type, "
-                    "identifier, min_x, min_y, max_x, max_y, srs_id) VALUES "
-                    "(%Q, %Q, %Q, %7.4f, %7.4f, %7.4f, %7.4f, %d)",
-                    db_name, "gpkg_contents", table_name, "features", table_name, -180.0000, -90.0000, 180.0000,
-                    90.0000, srs_id);
-  if (result != SQLITE_OK) {
-    error_append(error, sqlite3_errmsg(db));
+    error_append(error, "%s", sqlite3_errmsg(db));
     return result;
   }
 
@@ -726,8 +745,11 @@ static int create_spatial_index(sqlite3 *db, const char *db_name, const char *ta
   }
 
   result = sql_exec(db,
+                    /* These are string values, not identifiers: written double-quoted they only
+                       worked through SQLite's double-quoted-string fallback, so registering the
+                       index failed outright on a connection with dqs_dml disabled. */
                     "INSERT OR REPLACE INTO \"%w\".\"gpkg_extensions\" (table_name, column_name, extension_name, "
-                    "definition, scope) VALUES (\"%w\", \"%w\", \"%w\", \"%w\", \"%w\")",
+                    "definition, scope) VALUES (%Q, %Q, %Q, %Q, %Q)",
                     db_name, table_name, geometry_column_name, "gpkg_rtree_index",
                     "GeoPackage 1.0 Specification Annex L", "write-only");
   if (result != SQLITE_OK) {

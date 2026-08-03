@@ -656,15 +656,30 @@ void geom_envelope_accumulate(geom_envelope_t *envelope, const geom_header_t *he
 }
 
 int geom_envelope_finalize(geom_envelope_t *envelope) {
+  double nan = fp_nan();
 
   if ((envelope->min_x == DBL_MAX && envelope->max_x == -DBL_MAX) ||
       (envelope->min_y == DBL_MAX && envelope->max_y == -DBL_MAX)) {
-    double nan = fp_nan();
+    envelope->has_env_x = 0;
+    envelope->has_env_y = 0;
+    envelope->has_env_z = 0;
+    envelope->has_env_m = 0;
     envelope->min_x = envelope->max_x = nan;
     envelope->min_y = envelope->max_y = nan;
     envelope->min_z = envelope->max_z = nan;
     envelope->min_m = envelope->max_m = nan;
     return EMPTY_GEOM;
+  }
+
+  /* An ordinate whose values were all NaN never tightened the initialization sentinels; report
+     it as absent instead of handing DBL_MAX/-DBL_MAX bounds to the caller. */
+  if (envelope->min_z == DBL_MAX && envelope->max_z == -DBL_MAX) {
+    envelope->has_env_z = 0;
+    envelope->min_z = envelope->max_z = nan;
+  }
+  if (envelope->min_m == DBL_MAX && envelope->max_m == -DBL_MAX) {
+    envelope->has_env_m = 0;
+    envelope->min_m = envelope->max_m = nan;
   }
 
   return 0;
